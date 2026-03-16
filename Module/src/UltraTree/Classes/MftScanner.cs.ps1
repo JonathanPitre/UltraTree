@@ -49,6 +49,12 @@ namespace MftTreeSizeV8
         public long WastedSpace;
     }
 
+    public class DuplicateCandidate
+    {
+        public string Path;
+        public long Size;
+    }
+
     public class DuplicateResult
     {
         public List<DuplicateGroup> Groups;
@@ -183,8 +189,7 @@ namespace MftTreeSizeV8
         private const ulong PRIME64_5 = 2870177450012600261UL;
 
         public static DuplicateResult FindDuplicates(
-            string[] filePaths,
-            long[] fileSizes,
+            DuplicateCandidate[] candidates,
             long minFileSize,
             bool verbose)
         {
@@ -193,13 +198,20 @@ namespace MftTreeSizeV8
 
             // ============ STAGE 1: Group by size ============
             var sw = Stopwatch.StartNew();
-            var sizeGroups = new Dictionary<long, List<int>>();
-            for (int i = 0; i < filePaths.Length; i++)
+            var sizeGroups = new Dictionary<long, List<DuplicateCandidate>>();
+            for (int i = 0; i < candidates.Length; i++)
             {
-                if (fileSizes[i] < minFileSize) continue;
-                if (!sizeGroups.ContainsKey(fileSizes[i]))
-                    sizeGroups[fileSizes[i]] = new List<int>();
-                sizeGroups[fileSizes[i]].Add(i);
+                DuplicateCandidate candidate = candidates[i];
+                if (candidate.Size < minFileSize) continue;
+
+                List<DuplicateCandidate> sizeBucket;
+                if (!sizeGroups.TryGetValue(candidate.Size, out sizeBucket))
+                {
+                    sizeBucket = new List<DuplicateCandidate>();
+                    sizeGroups[candidate.Size] = sizeBucket;
+                }
+
+                sizeBucket.Add(candidate);
             }
 
             var sizeCandidates = sizeGroups.Where(g => g.Value.Count >= 2).ToList();
@@ -214,22 +226,28 @@ namespace MftTreeSizeV8
 
             // ============ STAGE 2: Quick hash (xxHash64 of first 8KB) ============
             sw.Restart();
-            var hashCandidates = new ConcurrentBag<KeyValuePair<long, List<string>>>();
+            var hashCandidates = new ConcurrentBag<KeyValuePair<long, List<DuplicateCandidate>>>();
             long hashErrors = 0;
 
             Parallel.ForEach(sizeCandidates, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, group =>
             {
-                var hashGroups = new Dictionary<ulong, List<string>>();
+                var hashGroups = new Dictionary<ulong, List<DuplicateCandidate>>();
                 long fileSize = group.Key;
 
-                foreach (int idx in group.Value)
+                foreach (DuplicateCandidate candidate in group.Value)
                 {
                     try
                     {
-                        ulong hash = ComputeQuickHash(filePaths[idx], fileSize);
-                        if (!hashGroups.ContainsKey(hash))
-                            hashGroups[hash] = new List<string>();
-                        hashGroups[hash].Add(filePaths[idx]);
+                        ulong hash = ComputeQuickHash(candidate.Path, fileSize);
+
+                        List<DuplicateCandidate> hashBucket;
+                        if (!hashGroups.TryGetValue(hash, out hashBucket))
+                        {
+                            hashBucket = new List<DuplicateCandidate>();
+                            hashGroups[hash] = hashBucket;
+                        }
+
+                        hashBucket.Add(candidate);
                     }
                     catch
                     {
@@ -240,7 +258,7 @@ namespace MftTreeSizeV8
                 // Only keep groups with 2+ files (potential duplicates)
                 foreach (var hg in hashGroups.Where(h => h.Value.Count >= 2))
                 {
-                    hashCandidates.Add(new KeyValuePair<long, List<string>>(fileSize, hg.Value));
+                    hashCandidates.Add(new KeyValuePair<long, List<DuplicateCandidate>>(fileSize, hg.Value));
                 }
             });
 
@@ -551,20 +569,20 @@ namespace MftTreeSizeV8
         }
 
         private static List<DuplicateGroup> FindDuplicatesInGroup(
-            List<string> files,
+            List<DuplicateCandidate> candidates,
             long fileSize,
             ref long totalComparisons)
         {
-            var duplicateSets = new List<List<string>>();
+            var duplicateGroups = new List<DuplicateGroup>();
             var processed = new HashSet<int>();
 
             // Pre-compute hashes for all files in the group (more efficient)
             var fileHashes = new Dictionary<int, ulong>();
-            for (int i = 0; i < files.Count; i++)
+            for (int i = 0; i < candidates.Count; i++)
             {
                 try
                 {
-                    fileHashes[i] = ComputeFullHash(files[i]);
+                    fileHashes[i] = ComputeFullHash(candidates[i].Path);
                 }
                 catch
                 {
@@ -572,14 +590,14 @@ namespace MftTreeSizeV8
                 }
             }
 
-            for (int i = 0; i < files.Count; i++)
+            for (int i = 0; i < candidates.Count; i++)
             {
                 if (processed.Contains(i)) continue;
                 if (!fileHashes.ContainsKey(i)) continue;
 
-                var currentSet = new List<string> { files[i] };
+                var currentSet = new List<string> { candidates[i].Path };
 
-                for (int j = i + 1; j < files.Count; j++)
+                for (int j = i + 1; j < candidates.Count; j++)
                 {
                     if (processed.Contains(j)) continue;
                     if (!fileHashes.ContainsKey(j)) continue;
@@ -589,23 +607,25 @@ namespace MftTreeSizeV8
                     // Compare hashes (instant - no disk I/O)
                     if (fileHashes[i] == fileHashes[j])
                     {
-                        currentSet.Add(files[j]);
+                        currentSet.Add(candidates[j].Path);
                         processed.Add(j);
                     }
                 }
 
                 if (currentSet.Count > 1)
-                    duplicateSets.Add(currentSet);
+                {
+                    duplicateGroups.Add(new DuplicateGroup
+                    {
+                        Hash = fileHashes[i].ToString("X16"),
+                        FileSize = fileSize,
+                        Files = currentSet,
+                        WastedSpace = (currentSet.Count - 1) * fileSize
+                    });
+                }
                 processed.Add(i);
             }
 
-            return duplicateSets.Select(set => new DuplicateGroup
-            {
-                Hash = fileHashes.ContainsKey(files.IndexOf(set[0])) ? fileHashes[files.IndexOf(set[0])].ToString("X16") : "MATCH",
-                FileSize = fileSize,
-                Files = set,
-                WastedSpace = (set.Count - 1) * fileSize
-            }).ToList();
+            return duplicateGroups;
         }
     }
 
@@ -784,8 +804,7 @@ namespace MftTreeSizeV8
                 var fileTypeSizes = new ConcurrentDictionary<string, long>();
                 var fileTypeCounts = new ConcurrentDictionary<string, int>();
 
-                var allFilePaths = findDuplicates ? new ConcurrentBag<string>() : null;
-                var allFileSizes = findDuplicates ? new ConcurrentBag<long>() : null;
+                var allDuplicateCandidates = findDuplicates ? new ConcurrentBag<DuplicateCandidate>() : null;
 
                 // Dynamic cleanup tracking based on categories
                 var categorySizes = new ConcurrentDictionary<string, long>();
@@ -820,8 +839,7 @@ namespace MftTreeSizeV8
 
                     if (findDuplicates && size >= minDuplicateSize)
                     {
-                        allFilePaths.Add(path);
-                        allFileSizes.Add(size);
+                        allDuplicateCandidates.Add(new DuplicateCandidate { Path = path, Size = size });
                     }
 
                     string ext = Path.GetExtension(entry.FileName);
@@ -869,15 +887,13 @@ namespace MftTreeSizeV8
                 if (verbose) Console.WriteLine("Size + aggregation: {0:N2}s ({1:N0} files, {2:N0} errors)", sw.Elapsed.TotalSeconds, files.Length, errorCount);
 
                 // Duplicate detection
-                if (findDuplicates && allFilePaths != null && allFilePaths.Count > 0)
+                if (findDuplicates && allDuplicateCandidates != null && allDuplicateCandidates.Count > 0)
                 {
                     sw.Restart();
-                    if (verbose) Console.WriteLine("Duplicate detection: {0:N0} files >= {1} bytes", allFilePaths.Count, minDuplicateSize);
+                    if (verbose) Console.WriteLine("Duplicate detection: {0:N0} files >= {1} bytes", allDuplicateCandidates.Count, minDuplicateSize);
 
-                    var pathsArray = allFilePaths.ToArray();
-                    var sizesArray = allFileSizes.ToArray();
-
-                    result.Duplicates = DuplicateFinder.FindDuplicates(pathsArray, sizesArray, minDuplicateSize, verbose);
+                    var candidatesArray = allDuplicateCandidates.ToArray();
+                    result.Duplicates = DuplicateFinder.FindDuplicates(candidatesArray, minDuplicateSize, verbose);
 
                     sw.Stop();
                     if (verbose) Console.WriteLine("Duplicate scan complete: {0:N0} groups, {1} bytes wasted | {2:N2}s",

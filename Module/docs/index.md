@@ -45,6 +45,7 @@ $html | Ninja-Property-Set-Piped treesize
 - [ConvertTo-NinjaOneHtml](functions/convertto-ninjaonehtml.md) - HTML report generation
 - [NinjaOne Integration](ninjaone-integration.md) - Complete RMM setup guide
 - [Configuration](configuration.md) - Thresholds and display options
+- [Refactor Review Plan](refactor-review-plan.md) - Architecture and performance review with phased refactor roadmap
 
 ## Requirements
 
