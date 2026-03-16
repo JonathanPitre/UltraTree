@@ -100,6 +100,28 @@ namespace MftTreeSizeV8
         public long ErrorCount;
     }
 
+    public class MftScanAccumulator
+    {
+        public Dictionary<ulong, long> FolderSizes;
+        public Dictionary<string, long> FileTypeSizes;
+        public Dictionary<string, int> FileTypeCounts;
+        public Dictionary<string, long> CategorySizes;
+        public List<FolderResult> LargeFiles;
+        public List<DuplicateCandidate> DuplicateCandidates;
+        public long ErrorCount;
+
+        public MftScanAccumulator(bool trackDuplicates, bool trackLargeFiles)
+        {
+            FolderSizes = new Dictionary<ulong, long>();
+            FileTypeSizes = new Dictionary<string, long>();
+            FileTypeCounts = new Dictionary<string, int>();
+            CategorySizes = new Dictionary<string, long>();
+            LargeFiles = trackLargeFiles ? new List<FolderResult>() : null;
+            DuplicateCandidates = trackDuplicates ? new List<DuplicateCandidate>() : null;
+            ErrorCount = 0;
+        }
+    }
+
     // Memory manager for dynamic RAM-based file loading
     public static class MemoryManager
     {
@@ -937,91 +959,115 @@ namespace MftTreeSizeV8
                 sw.Restart();
                 var files = fileMap.Values.Where(e => !e.IsDirectory).ToArray();
 
-                var folderSizesByRef = new ConcurrentDictionary<ulong, long>();
-                var largeFiles = new ConcurrentBag<FolderResult>();
-                var fileTypeSizes = new ConcurrentDictionary<string, long>();
-                var fileTypeCounts = new ConcurrentDictionary<string, int>();
-
-                var allDuplicateCandidates = findDuplicates ? new ConcurrentBag<DuplicateCandidate>() : null;
+                var folderSizesByRef = new Dictionary<ulong, long>();
+                var largeFiles = new List<FolderResult>();
+                var fileTypeSizes = new Dictionary<string, long>();
+                var fileTypeCounts = new Dictionary<string, int>();
+                var allDuplicateCandidates = findDuplicates ? new List<DuplicateCandidate>() : null;
 
                 // Dynamic cleanup tracking based on categories
-                var categorySizes = new ConcurrentDictionary<string, long>();
+                var categorySizes = new Dictionary<string, long>();
                 foreach (var name in categoryNames)
                     categorySizes[name] = 0;
 
+                object mergeLock = new object();
                 long errorCount = 0;
 
-                Parallel.ForEach(files, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, entry =>
-                {
-                    string path = GetFullPathForFile(entry, fileMap, pathCache, rootPath);
-                    if (path == null) return;
-
-                    long size = 0;
-                    try
+                Parallel.ForEach<MftEntry, MftScanAccumulator>(
+                    files,
+                    new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
+                    () => new MftScanAccumulator(findDuplicates, includeFiles),
+                    (entry, loopState, local) =>
                     {
-                        uint high;
-                        uint low = GetCompressedFileSize(path, out high);
-                        if (low != 0xFFFFFFFF || Marshal.GetLastWin32Error() == 0)
-                            size = ((long)high << 32) + low;
-                        else
+                        string path = GetFullPathForFile(entry, fileMap, pathCache, rootPath);
+                        if (path == null) return local;
+
+                        long size = 0;
+                        try
                         {
-                            Interlocked.Increment(ref errorCount);
-                            return;
+                            uint high;
+                            uint low = GetCompressedFileSize(path, out high);
+                            if (low != 0xFFFFFFFF || Marshal.GetLastWin32Error() == 0)
+                                size = ((long)high << 32) + low;
+                            else
+                            {
+                                local.ErrorCount++;
+                                return local;
+                            }
                         }
-                    }
-                    catch
-                    {
-                        Interlocked.Increment(ref errorCount);
-                        return;
-                    }
-
-                    if (findDuplicates && size >= minDuplicateSize)
-                    {
-                        var duplicateCandidate = new DuplicateCandidate { Path = path, Size = size };
-                        PopulateFileIdentity(path, duplicateCandidate);
-                        allDuplicateCandidates.Add(duplicateCandidate);
-                    }
-
-                    string ext = Path.GetExtension(entry.FileName);
-                    if (!string.IsNullOrEmpty(ext))
-                    {
-                        ext = ext.ToLowerInvariant();
-                        fileTypeSizes.AddOrUpdate(ext, size, (k, v) => v + size);
-                        fileTypeCounts.AddOrUpdate(ext, 1, (k, v) => v + 1);
-                    }
-
-                    // Track cleanup categories
-                    for (int c = 0; c < categoryPatterns.Length; c++)
-                    {
-                        if (ContainsAny(path, categoryPatterns[c]))
+                        catch
                         {
-                            categorySizes.AddOrUpdate(categoryNames[c], size, (k, v) => v + size);
-                            break;
+                            local.ErrorCount++;
+                            return local;
                         }
-                    }
 
-                    if (includeFiles && size >= largeFileThreshold)
+                        if (findDuplicates && local.DuplicateCandidates != null && size >= minDuplicateSize)
+                        {
+                            var duplicateCandidate = new DuplicateCandidate { Path = path, Size = size };
+                            PopulateFileIdentity(path, duplicateCandidate);
+                            local.DuplicateCandidates.Add(duplicateCandidate);
+                        }
+
+                        string ext = Path.GetExtension(entry.FileName);
+                        if (!string.IsNullOrEmpty(ext))
+                        {
+                            ext = ext.ToLowerInvariant();
+                            AddOrIncrement(local.FileTypeSizes, ext, size);
+                            AddOrIncrement(local.FileTypeCounts, ext, 1);
+                        }
+
+                        for (int c = 0; c < categoryPatterns.Length; c++)
+                        {
+                            if (ContainsAny(path, categoryPatterns[c]))
+                            {
+                                AddOrIncrement(local.CategorySizes, categoryNames[c], size);
+                                break;
+                            }
+                        }
+
+                        if (includeFiles && local.LargeFiles != null && size >= largeFileThreshold)
+                        {
+                            DateTime lastMod = DateTime.MinValue;
+                            try { lastMod = File.GetLastWriteTime(path); } catch { }
+                            local.LargeFiles.Add(new FolderResult { Path = path, Size = size, IsDirectory = false, LastModified = lastMod });
+                        }
+
+                        ulong parentRef = entry.ParentRef;
+                        int depth = 0;
+                        while (parentRef >= MFT_ROOT_REFERENCE && depth < MAX_PATH_DEPTH)
+                        {
+                            AddOrIncrement(local.FolderSizes, parentRef, size);
+
+                            MftEntry parentEntry;
+                            if (!fileMap.TryGetValue(parentRef, out parentEntry)) break;
+                            if (parentEntry.ParentRef == MFT_ROOT_REFERENCE && parentRef == MFT_ROOT_REFERENCE) break;
+                            if (parentEntry.ParentRef == parentRef) break;
+
+                            parentRef = parentEntry.ParentRef;
+                            depth++;
+                        }
+
+                        return local;
+                    },
+                    local =>
                     {
-                        DateTime lastMod = DateTime.MinValue;
-                        try { lastMod = File.GetLastWriteTime(path); } catch { }
-                        largeFiles.Add(new FolderResult { Path = path, Size = size, IsDirectory = false, LastModified = lastMod });
-                    }
+                        lock (mergeLock)
+                        {
+                            MergeInto(folderSizesByRef, local.FolderSizes);
+                            MergeInto(fileTypeSizes, local.FileTypeSizes);
+                            MergeInto(fileTypeCounts, local.FileTypeCounts);
+                            MergeInto(categorySizes, local.CategorySizes);
 
-                    ulong parentRef = entry.ParentRef;
-                    int depth = 0;
-                    while (parentRef >= MFT_ROOT_REFERENCE && depth < MAX_PATH_DEPTH)
-                    {
-                        folderSizesByRef.AddOrUpdate(parentRef, size, (k, v) => v + size);
+                            if (local.LargeFiles != null && local.LargeFiles.Count > 0)
+                                largeFiles.AddRange(local.LargeFiles);
 
-                        MftEntry parentEntry;
-                        if (!fileMap.TryGetValue(parentRef, out parentEntry)) break;
-                        if (parentEntry.ParentRef == MFT_ROOT_REFERENCE && parentRef == MFT_ROOT_REFERENCE) break;
-                        if (parentEntry.ParentRef == parentRef) break;
+                            if (allDuplicateCandidates != null && local.DuplicateCandidates != null && local.DuplicateCandidates.Count > 0)
+                                allDuplicateCandidates.AddRange(local.DuplicateCandidates);
+                        }
 
-                        parentRef = parentEntry.ParentRef;
-                        depth++;
-                    }
-                });
+                        if (local.ErrorCount > 0)
+                            Interlocked.Add(ref errorCount, local.ErrorCount);
+                    });
 
                 sw.Stop();
                 if (verbose) Console.WriteLine("Size + aggregation: {0:N2}s ({1:N0} files, {2:N0} errors)", sw.Elapsed.TotalSeconds, files.Length, errorCount);
@@ -1042,7 +1088,7 @@ namespace MftTreeSizeV8
 
                 // Build file type results
                 result.FileTypes = fileTypeSizes
-                    .Select(kvp => new FileTypeInfo { Extension = kvp.Key, TotalSize = kvp.Value, FileCount = fileTypeCounts.GetOrAdd(kvp.Key, 0) })
+                    .Select(kvp => new FileTypeInfo { Extension = kvp.Key, TotalSize = kvp.Value, FileCount = fileTypeCounts.ContainsKey(kvp.Key) ? fileTypeCounts[kvp.Key] : 0 })
                     .OrderByDescending(f => f.TotalSize)
                     .Take(15)
                     .ToList();
@@ -1111,6 +1157,51 @@ namespace MftTreeSizeV8
                     return true;
             }
             return false;
+        }
+
+        private static void AddOrIncrement(Dictionary<ulong, long> dictionary, ulong key, long value)
+        {
+            long existing;
+            if (dictionary.TryGetValue(key, out existing))
+                dictionary[key] = existing + value;
+            else
+                dictionary[key] = value;
+        }
+
+        private static void AddOrIncrement(Dictionary<string, long> dictionary, string key, long value)
+        {
+            long existing;
+            if (dictionary.TryGetValue(key, out existing))
+                dictionary[key] = existing + value;
+            else
+                dictionary[key] = value;
+        }
+
+        private static void AddOrIncrement(Dictionary<string, int> dictionary, string key, int value)
+        {
+            int existing;
+            if (dictionary.TryGetValue(key, out existing))
+                dictionary[key] = existing + value;
+            else
+                dictionary[key] = value;
+        }
+
+        private static void MergeInto(Dictionary<ulong, long> target, Dictionary<ulong, long> source)
+        {
+            foreach (var kvp in source)
+                AddOrIncrement(target, kvp.Key, kvp.Value);
+        }
+
+        private static void MergeInto(Dictionary<string, long> target, Dictionary<string, long> source)
+        {
+            foreach (var kvp in source)
+                AddOrIncrement(target, kvp.Key, kvp.Value);
+        }
+
+        private static void MergeInto(Dictionary<string, int> target, Dictionary<string, int> source)
+        {
+            foreach (var kvp in source)
+                AddOrIncrement(target, kvp.Key, kvp.Value);
         }
 
         private static string NormalizePath(string path)
