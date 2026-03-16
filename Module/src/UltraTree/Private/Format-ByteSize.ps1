@@ -31,5 +31,6 @@ function Format-ByteSize {
         $size /= 1024
     }
 
-    "{0:N$Decimals} {1}" -f $size, $sizes[$order]
+    $format = "{0:N$Decimals} {1}"
+    [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, $format, $size, $sizes[$order])
 }
