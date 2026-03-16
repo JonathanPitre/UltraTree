@@ -146,7 +146,7 @@ namespace MftTreeSizeV8
     // Simple buffer pool to reduce GC pressure during file operations
     public static class BufferPool
     {
-        private const int SMALL_BUFFER = 8192;      // 8KB for quick hash
+        private const int SMALL_BUFFER = 16384;     // 16KB for sampled quick hash
         private const int LARGE_BUFFER = 262144;    // 256KB for streaming
         private const int MAX_POOLED = 64;          // Max buffers to keep per size
 
@@ -190,8 +190,9 @@ namespace MftTreeSizeV8
 
     public static class DuplicateFinder
     {
-        private const int QUICK_HASH_SIZE = 8192;  // 8KB for quick hash
-        private static readonly int[] BLOCK_SIZES = { 4096, 8192, 16384, 32768, 65536, 131072, 262144 };
+        private const int QUICK_SAMPLE_SIZE = 4096;    // 4KB per sample
+        private const int QUICK_SAMPLE_COUNT = 4;      // head, 1/3, 2/3, tail
+        private const int QUICK_HASH_SIZE = QUICK_SAMPLE_SIZE * QUICK_SAMPLE_COUNT;
 
         // xxHash64 constants
         private const ulong PRIME64_1 = 11400714785074694791UL;
@@ -236,7 +237,7 @@ namespace MftTreeSizeV8
 
             if (sizeCandidates.Count == 0) return result;
 
-            // ============ STAGE 2: Quick hash (xxHash64 of first 8KB) ============
+            // ============ STAGE 2: Quick sampled hash ============
             sw.Restart();
             var hashCandidates = new ConcurrentBag<KeyValuePair<long, List<DuplicateCandidate>>>();
             long hashErrors = 0;
@@ -329,22 +330,57 @@ namespace MftTreeSizeV8
 
         private static ulong ComputeQuickHash(string filePath, long fileSize)
         {
-            int bytesToRead = (int)Math.Min(QUICK_HASH_SIZE, fileSize);
             byte[] buffer = BufferPool.RentSmall();
 
             try
             {
                 using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, QUICK_HASH_SIZE, FileOptions.SequentialScan))
                 {
-                    fs.Read(buffer, 0, bytesToRead);
-                }
+                    if (fileSize <= QUICK_HASH_SIZE)
+                    {
+                        int bytesToRead = (int)Math.Min(fileSize, buffer.Length);
+                        int bytesRead = fs.Read(buffer, 0, bytesToRead);
+                        return XXHash64(buffer, bytesRead);
+                    }
 
-                return XXHash64(buffer, bytesToRead);
+                    int writeOffset = 0;
+                    var sampleOffsets = GetQuickHashSampleOffsets(fileSize);
+
+                    for (int i = 0; i < sampleOffsets.Count; i++)
+                    {
+                        fs.Position = sampleOffsets[i];
+                        int bytesRead = fs.Read(buffer, writeOffset, QUICK_SAMPLE_SIZE);
+                        if (bytesRead <= 0) continue;
+                        writeOffset += bytesRead;
+                    }
+
+                    return XXHash64(buffer, writeOffset);
+                }
             }
             finally
             {
                 BufferPool.Return(buffer);
             }
+        }
+
+        private static List<long> GetQuickHashSampleOffsets(long fileSize)
+        {
+            long maxOffset = Math.Max(0, fileSize - QUICK_SAMPLE_SIZE);
+            var offsets = new List<long>(QUICK_SAMPLE_COUNT);
+
+            AddQuickHashOffset(offsets, 0, maxOffset);
+            AddQuickHashOffset(offsets, Math.Max(0, (fileSize / 3) - (QUICK_SAMPLE_SIZE / 2)), maxOffset);
+            AddQuickHashOffset(offsets, Math.Max(0, ((fileSize * 2) / 3) - (QUICK_SAMPLE_SIZE / 2)), maxOffset);
+            AddQuickHashOffset(offsets, maxOffset, maxOffset);
+
+            return offsets;
+        }
+
+        private static void AddQuickHashOffset(List<long> offsets, long requestedOffset, long maxOffset)
+        {
+            long clampedOffset = Math.Max(0, Math.Min(requestedOffset, maxOffset));
+            if (!offsets.Contains(clampedOffset))
+                offsets.Add(clampedOffset);
         }
 
         private static ulong XXHash64(byte[] data, int length)

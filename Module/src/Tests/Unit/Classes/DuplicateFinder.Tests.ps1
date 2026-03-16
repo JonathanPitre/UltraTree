@@ -113,4 +113,37 @@ Describe 'DuplicateFinder' -Tag Unit {
         @($result.Groups[0].Files) | Should -Not -Contain $small1
         @($result.Groups[0].Files) | Should -Not -Contain $small2
     }
+
+    It 'Quick hash sampling distinguishes files that only share the same prefix' {
+        $testRoot = Join-Path $TestDrive 'dedupe-sampled-quick-hash'
+        $null = New-Item -Path $testRoot -ItemType Directory -Force
+
+        $basePath = Join-Path $testRoot 'base.bin'
+        $copyPath = Join-Path $testRoot 'copy.bin'
+        $variantPath = Join-Path $testRoot 'variant.bin'
+
+        $baseBytes = New-Object byte[] 32768
+        [Array]::Fill($baseBytes, [byte]65)
+
+        $variantBytes = New-Object byte[] 32768
+        [Array]::Copy($baseBytes, $variantBytes, $baseBytes.Length)
+
+        for ($i = 28672; $i -lt 32768; $i++) {
+            $variantBytes[$i] = [byte]66
+        }
+
+        [System.IO.File]::WriteAllBytes($basePath, $baseBytes)
+        [System.IO.File]::WriteAllBytes($copyPath, $baseBytes)
+        [System.IO.File]::WriteAllBytes($variantPath, $variantBytes)
+
+        $bindingFlags = [System.Reflection.BindingFlags]'NonPublic,Static'
+        $method = [MftTreeSizeV8.DuplicateFinder].GetMethod('ComputeQuickHash', $bindingFlags)
+
+        $baseHash = $method.Invoke($null, [object[]]@([string]$basePath, [int64]([System.IO.FileInfo]$basePath).Length))
+        $copyHash = $method.Invoke($null, [object[]]@([string]$copyPath, [int64]([System.IO.FileInfo]$copyPath).Length))
+        $variantHash = $method.Invoke($null, [object[]]@([string]$variantPath, [int64]([System.IO.FileInfo]$variantPath).Length))
+
+        $baseHash | Should -Be $copyHash
+        $variantHash | Should -Not -Be $baseHash
+    }
 }
