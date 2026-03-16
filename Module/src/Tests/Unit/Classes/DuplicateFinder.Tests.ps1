@@ -123,7 +123,9 @@ Describe 'DuplicateFinder' -Tag Unit {
         $variantPath = Join-Path $testRoot 'variant.bin'
 
         $baseBytes = New-Object byte[] 32768
-        [Array]::Fill($baseBytes, [byte]65)
+        for ($i = 0; $i -lt $baseBytes.Length; $i++) {
+            $baseBytes[$i] = [byte]65
+        }
 
         $variantBytes = New-Object byte[] 32768
         [Array]::Copy($baseBytes, $variantBytes, $baseBytes.Length)
