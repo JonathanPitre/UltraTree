@@ -83,6 +83,18 @@ namespace MftTreeSizeV8
         public long TotalFolders;
     }
 
+    public class FallbackScanContext
+    {
+        public ConcurrentBag<FolderResult> Items;
+        public ConcurrentDictionary<string, long> FileTypeSizes;
+        public ConcurrentDictionary<string, int> FileTypeCounts;
+        public ConcurrentBag<DuplicateCandidate> DuplicateCandidates;
+        public ConcurrentDictionary<string, long> CategorySizes;
+        public long TotalFiles;
+        public long TotalFolders;
+        public long ErrorCount;
+    }
+
     // Memory manager for dynamic RAM-based file loading
     public static class MemoryManager
     {
@@ -702,8 +714,11 @@ namespace MftTreeSizeV8
             if (!driveInfo.DriveFormat.Equals("NTFS", StringComparison.OrdinalIgnoreCase))
             {
                 if (verbose) Console.WriteLine("Drive is not NTFS, using fallback");
-                result.Items = ScanFallback(driveLetter, maxDepth, topN, includeFiles, largeFileThreshold, verbose);
-                return result;
+                var fallbackResult = ScanFallback(driveLetter, maxDepth, topN, includeFiles, verbose, findDuplicates, minDuplicateSize, largeFileThreshold, cleanupMinSize, categoryPatterns, categoryNames);
+                fallbackResult.TotalDriveSize = result.TotalDriveSize;
+                fallbackResult.TotalFreeSpace = result.TotalFreeSpace;
+                fallbackResult.TotalUsedSpace = result.TotalUsedSpace;
+                return fallbackResult;
             }
 
             using (SafeFileHandle volumeHandle = CreateFile(volumePath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero))
@@ -711,8 +726,11 @@ namespace MftTreeSizeV8
                 if (volumeHandle.IsInvalid)
                 {
                     if (verbose) Console.WriteLine("Cannot open volume (need admin), using fallback");
-                    result.Items = ScanFallback(driveLetter, maxDepth, topN, includeFiles, largeFileThreshold, verbose);
-                    return result;
+                    var fallbackResult = ScanFallback(driveLetter, maxDepth, topN, includeFiles, verbose, findDuplicates, minDuplicateSize, largeFileThreshold, cleanupMinSize, categoryPatterns, categoryNames);
+                    fallbackResult.TotalDriveSize = result.TotalDriveSize;
+                    fallbackResult.TotalFreeSpace = result.TotalFreeSpace;
+                    fallbackResult.TotalUsedSpace = result.TotalUsedSpace;
+                    return fallbackResult;
                 }
 
                 IntPtr journalDataPtr = Marshal.AllocHGlobal(64);
@@ -723,8 +741,11 @@ namespace MftTreeSizeV8
                 {
                     Marshal.FreeHGlobal(journalDataPtr);
                     if (verbose) Console.WriteLine("USN Journal not available, using fallback");
-                    result.Items = ScanFallback(driveLetter, maxDepth, topN, includeFiles, largeFileThreshold, verbose);
-                    return result;
+                    var fallbackResult = ScanFallback(driveLetter, maxDepth, topN, includeFiles, verbose, findDuplicates, minDuplicateSize, largeFileThreshold, cleanupMinSize, categoryPatterns, categoryNames);
+                    fallbackResult.TotalDriveSize = result.TotalDriveSize;
+                    fallbackResult.TotalFreeSpace = result.TotalFreeSpace;
+                    fallbackResult.TotalUsedSpace = result.TotalUsedSpace;
+                    return fallbackResult;
                 }
 
                 USN_JOURNAL_DATA journalData = (USN_JOURNAL_DATA)Marshal.PtrToStructure(journalDataPtr, typeof(USN_JOURNAL_DATA));
@@ -1022,19 +1043,95 @@ namespace MftTreeSizeV8
             return fullPath;
         }
 
-        private static List<FolderResult> ScanFallback(string driveLetter, int maxDepth, int topN, bool includeFiles, long largeFileThreshold, bool verbose)
+        private static ScanResult ScanFallback(
+            string driveLetter,
+            int maxDepth,
+            int topN,
+            bool includeFiles,
+            bool verbose,
+            bool findDuplicates,
+            long minDuplicateSize,
+            long largeFileThreshold,
+            long cleanupMinSize,
+            string[][] categoryPatterns,
+            string[] categoryNames)
         {
-            var results = new ConcurrentBag<FolderResult>();
+            var result = new ScanResult
+            {
+                Items = new List<FolderResult>(),
+                FileTypes = new List<FileTypeInfo>(),
+                CleanupSuggestions = new List<CleanupSuggestion>(),
+                Duplicates = new DuplicateResult()
+            };
+
+            var context = new FallbackScanContext
+            {
+                Items = new ConcurrentBag<FolderResult>(),
+                FileTypeSizes = new ConcurrentDictionary<string, long>(),
+                FileTypeCounts = new ConcurrentDictionary<string, int>(),
+                DuplicateCandidates = findDuplicates ? new ConcurrentBag<DuplicateCandidate>() : null,
+                CategorySizes = new ConcurrentDictionary<string, long>()
+            };
+
+            foreach (var name in categoryNames)
+                context.CategorySizes[name] = 0;
+
             var rootDir = new DirectoryInfo(driveLetter + ":\\");
-            ScanDirectoryFallback(rootDir, 0, maxDepth, includeFiles, largeFileThreshold, results, verbose);
-            return results.OrderByDescending(r => r.Size).Take(topN).ToList();
+            ScanDirectoryFallback(rootDir, 0, maxDepth, includeFiles, findDuplicates, minDuplicateSize, largeFileThreshold, context, categoryPatterns, categoryNames, verbose);
+
+            if (findDuplicates && context.DuplicateCandidates != null && context.DuplicateCandidates.Count > 0)
+            {
+                if (verbose) Console.WriteLine("Fallback duplicate detection: {0:N0} files >= {1} bytes", context.DuplicateCandidates.Count, minDuplicateSize);
+                result.Duplicates = DuplicateFinder.FindDuplicates(context.DuplicateCandidates.ToArray(), minDuplicateSize, verbose);
+            }
+
+            result.FileTypes = context.FileTypeSizes
+                .Select(kvp => new FileTypeInfo { Extension = kvp.Key, TotalSize = kvp.Value, FileCount = context.FileTypeCounts.GetOrAdd(kvp.Key, 0) })
+                .OrderByDescending(f => f.TotalSize)
+                .Take(15)
+                .ToList();
+
+            foreach (var kvp in context.CategorySizes)
+            {
+                if (kvp.Value > cleanupMinSize)
+                {
+                    result.CleanupSuggestions.Add(new CleanupSuggestion
+                    {
+                        Path = kvp.Key,
+                        Category = kvp.Key,
+                        Size = kvp.Value,
+                        Description = ""
+                    });
+                }
+            }
+            result.CleanupSuggestions = result.CleanupSuggestions.OrderByDescending(c => c.Size).ToList();
+
+            result.Items = context.Items.OrderByDescending(r => r.Size).Take(topN).ToList();
+            result.ErrorCount = context.ErrorCount;
+            result.TotalFiles = context.TotalFiles;
+            result.TotalFolders = context.TotalFolders;
+
+            return result;
         }
 
-        private static long ScanDirectoryFallback(DirectoryInfo dir, int depth, int maxDepth, bool includeFiles, long largeFileThreshold, ConcurrentBag<FolderResult> results, bool verbose)
+        private static long ScanDirectoryFallback(
+            DirectoryInfo dir,
+            int depth,
+            int maxDepth,
+            bool includeFiles,
+            bool findDuplicates,
+            long minDuplicateSize,
+            long largeFileThreshold,
+            FallbackScanContext context,
+            string[][] categoryPatterns,
+            string[] categoryNames,
+            bool verbose)
         {
             long totalSize = 0;
             try
             {
+                Interlocked.Increment(ref context.TotalFolders);
+
                 foreach (var file in dir.EnumerateFiles())
                 {
                     try
@@ -1043,23 +1140,68 @@ namespace MftTreeSizeV8
                         uint low = GetCompressedFileSize(file.FullName, out high);
                         long size = ((long)high << 32) + low;
                         totalSize += size;
+                        Interlocked.Increment(ref context.TotalFiles);
+
+                        if (findDuplicates && context.DuplicateCandidates != null && size >= minDuplicateSize)
+                        {
+                            context.DuplicateCandidates.Add(new DuplicateCandidate { Path = file.FullName, Size = size });
+                        }
+
+                        string ext = Path.GetExtension(file.Name);
+                        if (!string.IsNullOrEmpty(ext))
+                        {
+                            ext = ext.ToLowerInvariant();
+                            context.FileTypeSizes.AddOrUpdate(ext, size, (k, v) => v + size);
+                            context.FileTypeCounts.AddOrUpdate(ext, 1, (k, v) => v + 1);
+                        }
+
+                        for (int c = 0; c < categoryPatterns.Length; c++)
+                        {
+                            if (ContainsAny(file.FullName, categoryPatterns[c]))
+                            {
+                                context.CategorySizes.AddOrUpdate(categoryNames[c], size, (k, v) => v + size);
+                                break;
+                            }
+                        }
+
                         if (includeFiles && size >= largeFileThreshold)
-                            results.Add(new FolderResult { Path = file.FullName, Size = size, IsDirectory = false });
+                        {
+                            DateTime lastMod = DateTime.MinValue;
+                            try { lastMod = file.LastWriteTime; } catch { }
+                            context.Items.Add(new FolderResult { Path = file.FullName, Size = size, IsDirectory = false, LastModified = lastMod });
+                        }
                     }
-                    catch { }
+                    catch
+                    {
+                        Interlocked.Increment(ref context.ErrorCount);
+                    }
                 }
 
                 var subDirs = dir.EnumerateDirectories().ToArray();
                 var subSizes = new long[subDirs.Length];
                 Parallel.For(0, subDirs.Length, i => {
-                    try { subSizes[i] = ScanDirectoryFallback(subDirs[i], depth + 1, maxDepth, includeFiles, largeFileThreshold, results, verbose); } catch { }
+                    try
+                    {
+                        subSizes[i] = ScanDirectoryFallback(subDirs[i], depth + 1, maxDepth, includeFiles, findDuplicates, minDuplicateSize, largeFileThreshold, context, categoryPatterns, categoryNames, verbose);
+                    }
+                    catch
+                    {
+                        Interlocked.Increment(ref context.ErrorCount);
+                    }
                 });
                 totalSize += subSizes.Sum();
 
                 if (depth <= maxDepth)
-                    results.Add(new FolderResult { Path = NormalizePath(dir.FullName), Size = totalSize, IsDirectory = true });
+                {
+                    DateTime lastMod = DateTime.MinValue;
+                    try { lastMod = dir.LastWriteTime; } catch { }
+                    context.Items.Add(new FolderResult { Path = NormalizePath(dir.FullName), Size = totalSize, IsDirectory = true, LastModified = lastMod });
+                }
             }
-            catch { }
+            catch
+            {
+                Interlocked.Increment(ref context.ErrorCount);
+            }
             return totalSize;
         }
     }
