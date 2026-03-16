@@ -37,6 +37,42 @@ The biggest structural improvement is to move from runtime-compiled embedded C# 
 
 For implementation sequencing, the DLL migration should be treated as the last stage. During active scanner and duplicate-engine refactoring, keeping the C# code in the current `Add-Type` flow is the simpler and lower-risk development path. Once the engine is stable and benchmarked, it can be moved into a compiled assembly.
 
+## Current Status
+
+Current stable baseline on branch `codex/dev-refactor`:
+
+- Keep commit: `5b2bad3` (`Fix: restore compressed size scan semantics`)
+- Development model: `Add-Type` remains in place
+- Performance work status: paused for now
+
+What has been completed and validated on Windows:
+
+- Duplicate candidate collection was fixed by moving to a single candidate object.
+- Fallback scans now return the same result shape and metadata categories as the NTFS path.
+- Duplicate quick hashing was upgraded from a prefix-only hash to sampled hashing.
+- Duplicate full-hash file opens now use broader sharing for better live-system coverage.
+- Hardlinks are separated from duplicate waste and surfaced as `LinkedFiles`.
+- HTML output now includes a separate linked-files section.
+- Locale-sensitive byte formatting was normalized to invariant formatting.
+
+What was tried and deliberately not kept as the main path:
+
+- Replacing hot-path compressed-size reads with a handle-based all-files metadata probe.
+- Switching scan size semantics to `AllocationSize`.
+
+Why it was not kept:
+
+- It increased scan failures significantly on live systems.
+- It changed duplicate threshold behavior.
+- It did not produce a meaningful performance win.
+
+Practical conclusion:
+
+- The current scanner is already fast enough for production use.
+- Further hot-path performance changes are likely to have diminishing returns.
+- The remaining likely ceiling is storage I/O and per-file metadata access, not PowerShell control flow.
+- Future performance experiments should be isolated and benchmark-driven, not mixed into the stable path.
+
 ## Key Findings
 
 ### 1. Duplicate candidate arrays can desynchronize
@@ -382,11 +418,21 @@ Work:
 4. Delay path construction until needed.
 5. Broaden duplicate file sharing mode where safe so open files are less likely to be skipped.
 
+Status:
+
+- Partially completed
+
+Notes:
+
+- Per-worker local aggregation was implemented and kept because it improved structure and reduced shared hot-path updates.
+- On real Windows scans, it did not produce a material end-to-end speedup by itself.
+- Replacing hot-path size retrieval semantics was tested and rolled back.
+
 Expected result:
 
-- Better multicore scaling
-- Lower syscall count
-- Lower GC and string-allocation pressure
+- Cleaner scan internals
+- Better baseline for future isolated experiments
+- No current expectation of a major scan-time reduction from more work in this phase
 
 ### Phase 3: Strengthen the duplicate engine
 
@@ -410,11 +456,27 @@ Work:
    - full-hash throughput
    - duplicate coverage with open files
 
+Status:
+
+- Substantially completed for the current release goal
+
+Completed:
+
+- Sampled quick hashing
+- Broader file sharing in hash stages
+- Reduced full-hash allocation churn
+- Hardlink-aware duplicate classification
+
+Notes:
+
+- These changes improved correctness and operational coverage more than raw speed.
+- The duplicate engine is currently in a good enough place for stabilization.
+
 Expected result:
 
-- Fewer files reaching the expensive full-hash stage
-- Lower duplicate scan time
-- Better operational coverage on live systems
+- Stable duplicate reporting
+- Better live-system duplicate coverage
+- Safer duplicate totals due to hardlink separation
 
 ### Phase 4: Reshape the result pipeline
 
@@ -432,6 +494,15 @@ Work:
    - Duplicate groups
 3. Minimize `PSCustomObject` conversion in `Get-FolderSizes`.
 4. Only format strings such as `Size` and `LastModified` at the display layer.
+
+Status:
+
+- Deferred
+
+Reason:
+
+- The remaining PowerShell-side overhead does not currently justify another risky refactor.
+- This remains a good cleanup target later, especially before DLL packaging.
 
 Expected result:
 
@@ -458,6 +529,22 @@ Work:
    - report hardlinks separately
    - sampled hash aggressiveness
 4. Update HTML/report rendering to display the richer duplicate metadata and add a separate linked-files section.
+
+Status:
+
+- Mostly completed for the current feature set
+
+Completed:
+
+- Hardlink detection
+- Linked-files reporting in result objects
+- Linked-files rendering in HTML output
+
+Remaining optional improvements:
+
+- Canonical file suggestion
+- Verification metadata
+- More explicit cleanup guidance for duplicate groups
 
 Expected result:
 
@@ -600,17 +687,15 @@ If possible, also add benchmark-style tests for:
 
 ## Suggested Implementation Order
 
-1. Fix duplicate candidate collection
-2. Normalize fallback output contract
-3. Refactor ancestor aggregation
-4. Reuse USN timestamps and reduce hot-path metadata calls
-5. Group duplicate candidates during the main scan
-6. Upgrade duplicate quick hashing to sampled fingerprints
-7. Push more filtering and top-N work into C#
-8. Add hardlink awareness and richer duplicate metadata
-9. Stabilize engine interfaces and benchmark the refactored scanner
-10. Introduce precompiled DLL packaging
-11. Expand behavioral and performance tests
+Revised order after implementation and benchmarking:
+
+1. Keep the current stable scan path based on compressed-size semantics
+2. Treat additional scan-speed work as experimental only
+3. Finish documentation and release hardening around duplicates and linked files
+4. Expand behavioral test coverage where gaps remain
+5. Clean up public/report semantics before packaging work
+6. Stabilize engine interfaces
+7. Introduce precompiled DLL packaging as the final structural phase
 
 ## Phase Task Breakdown
 
@@ -618,49 +703,74 @@ Use this section as the working checklist for implementation.
 
 ### Phase 1 Tasks
 
-- Create a single `DuplicateCandidate` type and replace the split path/size bags.
-- Refactor duplicate candidate collection to preserve size with the path at creation time.
-- Normalize fallback results so duplicate-enabled and non-duplicate scans return the same contract.
-- Add regression tests for duplicate wasted-space totals and fallback parity.
+- [x] Create a single `DuplicateCandidate` type and replace the split path/size bags.
+- [x] Refactor duplicate candidate collection to preserve size with the path at creation time.
+- [x] Normalize fallback results so duplicate-enabled and non-duplicate scans return the same contract.
+- [x] Add regression tests for duplicate wasted-space totals and fallback parity.
 
 ### Phase 2 Tasks
 
-- Replace shared folder aggregation with per-thread local aggregation and merge.
-- Reuse MFT timestamps instead of path-based `GetLastWriteTime` calls.
-- Defer file and folder path materialization until an item must be emitted.
-- Update duplicate file opens to use broader file sharing when safe.
+- [x] Replace shared folder aggregation with per-thread local aggregation and merge.
+- [ ] Reuse MFT timestamps instead of path-based `GetLastWriteTime` calls.
+- [ ] Defer file and folder path materialization until an item must be emitted.
+- [x] Update duplicate file opens to use broader file sharing when safe.
+
+Phase note:
+
+- Further work here is paused unless future benchmarks justify it.
 
 ### Phase 3 Tasks
 
-- Size-bucket duplicate candidates during the main scan.
-- Implement sampled duplicate fingerprints.
-- Benchmark head-only hashing versus sampled hashing.
-- Rework full-file hashing to reduce temporary allocations.
-- Separate duplicate hash failures from general scan errors.
+- [ ] Size-bucket duplicate candidates during the main scan.
+- [x] Implement sampled duplicate fingerprints.
+- [x] Benchmark head-only hashing versus sampled hashing.
+- [x] Rework full-file hashing to reduce temporary allocations.
+- [ ] Separate duplicate hash failures from general scan errors.
+
+Phase note:
+
+- Performance gains were modest, but correctness and live-system resilience improved.
 
 ### Phase 4 Tasks
 
-- Move top-N selection and duplicate sorting into C#.
-- Keep duplicate DTOs typed until the output layer.
-- Minimize PowerShell object reshaping in `Get-FolderSizes`.
-- Format duplicate display strings only in HTML/report code.
+- [ ] Move top-N selection and duplicate sorting into C#.
+- [ ] Keep duplicate DTOs typed until the output layer.
+- [ ] Minimize PowerShell object reshaping in `Get-FolderSizes`.
+- [ ] Format duplicate display strings only in HTML/report code.
+
+Phase note:
+
+- Deferred for now.
 
 ### Phase 5 Tasks
 
-- Detect hardlinks and remove them from wasted-space totals.
-- Extend duplicate DTOs with canonical-path and verification metadata.
-- Add dedup configuration options for exclusion and behavior tuning.
-- Update duplicate HTML rendering to expose richer context.
+- [x] Detect hardlinks and remove them from wasted-space totals.
+- [ ] Extend duplicate DTOs with canonical-path and verification metadata.
+- [ ] Add dedup configuration options for exclusion and behavior tuning.
+- [x] Update duplicate HTML rendering to expose richer context.
 
 ### Phase 6 Tasks
 
-- Freeze the native/public boundary after the refactor is stable.
-- Split scanner and duplicate engine code into a dedicated C# project.
-- Produce and package `UltraTree.Native.dll`.
-- Target a Windows PowerShell 5.1-compatible framework/runtime.
-- Update manifest/build logic to load the assembly explicitly.
-- Add import-time benchmarks before and after the DLL migration.
-- Document signing as a release-hardening option rather than a development blocker.
+- [ ] Freeze the native/public boundary after the refactor is stable.
+- [ ] Split scanner and duplicate engine code into a dedicated C# project.
+- [ ] Produce and package `UltraTree.Native.dll`.
+- [ ] Target a Windows PowerShell 5.1-compatible framework/runtime.
+- [ ] Update manifest/build logic to load the assembly explicitly.
+- [ ] Add import-time benchmarks before and after the DLL migration.
+- [x] Document signing as a release-hardening option rather than a development blocker.
+
+## Recommended Next Focus
+
+With performance work paused, the next practical work should be:
+
+1. Stabilize documentation for duplicate and linked-file behavior.
+2. Review remaining behavioral test gaps without changing the hot path.
+3. Prepare the codebase for an eventual DLL move by clarifying boundaries, not by changing runtime behavior.
+
+Do not resume scan-speed refactoring unless:
+
+- a new benchmark identifies a clearly isolated hotspot, or
+- a future native experiment is run behind an internal toggle and compared against the stable baseline.
 
 ## Notes for Future Benchmarking
 
