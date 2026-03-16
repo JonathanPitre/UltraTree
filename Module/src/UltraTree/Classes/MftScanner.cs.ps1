@@ -124,7 +124,6 @@ namespace MftTreeSizeV8
 
     public class FileMetadata
     {
-        public long Size;
         public DateTime LastWriteTime;
         public string FileIdentity;
         public int LinkCount;
@@ -1013,24 +1012,34 @@ namespace MftTreeSizeV8
                         string path = GetFullPathForFile(entry, fileMap, pathCache, rootPath);
                         if (path == null) return local;
 
-                        FileMetadata metadata;
-                        if (!TryGetFileMetadata(path, out metadata))
+                        long size = 0;
+                        try
+                        {
+                            uint high;
+                            uint low = GetCompressedFileSize(path, out high);
+                            if (low != 0xFFFFFFFF || Marshal.GetLastWin32Error() == 0)
+                                size = ((long)high << 32) + low;
+                            else
+                            {
+                                local.ErrorCount++;
+                                return local;
+                            }
+                        }
+                        catch
                         {
                             local.ErrorCount++;
                             return local;
                         }
 
-                        long size = metadata.Size;
-
                         if (findDuplicates && local.DuplicateCandidates != null && size >= minDuplicateSize)
                         {
-                            var duplicateCandidate = new DuplicateCandidate
+                            var duplicateCandidate = new DuplicateCandidate { Path = path, Size = size };
+                            FileMetadata metadata;
+                            if (TryGetFileMetadata(path, out metadata))
                             {
-                                Path = path,
-                                Size = size,
-                                FileIdentity = metadata.FileIdentity,
-                                LinkCount = metadata.LinkCount
-                            };
+                                duplicateCandidate.FileIdentity = metadata.FileIdentity;
+                                duplicateCandidate.LinkCount = metadata.LinkCount;
+                            }
                             local.DuplicateCandidates.Add(duplicateCandidate);
                         }
 
@@ -1053,7 +1062,15 @@ namespace MftTreeSizeV8
 
                         if (includeFiles && local.LargeFiles != null && size >= largeFileThreshold)
                         {
-                            local.LargeFiles.Add(new FolderResult { Path = path, Size = size, IsDirectory = false, LastModified = metadata.LastWriteTime });
+                            DateTime lastMod = DateTime.MinValue;
+                            FileMetadata metadata;
+                            if (TryGetFileMetadata(path, out metadata))
+                                lastMod = metadata.LastWriteTime;
+                            else
+                            {
+                                try { lastMod = File.GetLastWriteTime(path); } catch { }
+                            }
+                            local.LargeFiles.Add(new FolderResult { Path = path, Size = size, IsDirectory = false, LastModified = lastMod });
                         }
 
                         ulong parentRef = entry.ParentRef;
@@ -1370,26 +1387,21 @@ namespace MftTreeSizeV8
                 {
                     try
                     {
-                        FileMetadata metadata;
-                        if (!TryGetFileMetadata(file.FullName, out metadata))
-                        {
-                            Interlocked.Increment(ref context.ErrorCount);
-                            continue;
-                        }
-
-                        long size = metadata.Size;
+                        uint high;
+                        uint low = GetCompressedFileSize(file.FullName, out high);
+                        long size = ((long)high << 32) + low;
                         totalSize += size;
                         Interlocked.Increment(ref context.TotalFiles);
 
                         if (findDuplicates && context.DuplicateCandidates != null && size >= minDuplicateSize)
                         {
-                            var duplicateCandidate = new DuplicateCandidate
+                            var duplicateCandidate = new DuplicateCandidate { Path = file.FullName, Size = size };
+                            FileMetadata metadata;
+                            if (TryGetFileMetadata(file.FullName, out metadata))
                             {
-                                Path = file.FullName,
-                                Size = size,
-                                FileIdentity = metadata.FileIdentity,
-                                LinkCount = metadata.LinkCount
-                            };
+                                duplicateCandidate.FileIdentity = metadata.FileIdentity;
+                                duplicateCandidate.LinkCount = metadata.LinkCount;
+                            }
                             context.DuplicateCandidates.Add(duplicateCandidate);
                         }
 
@@ -1412,7 +1424,15 @@ namespace MftTreeSizeV8
 
                         if (includeFiles && size >= largeFileThreshold)
                         {
-                            context.Items.Add(new FolderResult { Path = file.FullName, Size = size, IsDirectory = false, LastModified = metadata.LastWriteTime });
+                            DateTime lastMod = DateTime.MinValue;
+                            FileMetadata metadata;
+                            if (TryGetFileMetadata(file.FullName, out metadata))
+                                lastMod = metadata.LastWriteTime;
+                            else
+                            {
+                                try { lastMod = file.LastWriteTime; } catch { }
+                            }
+                            context.Items.Add(new FolderResult { Path = file.FullName, Size = size, IsDirectory = false, LastModified = lastMod });
                         }
                     }
                     catch
@@ -1460,26 +1480,21 @@ namespace MftTreeSizeV8
                     if (fileHandle.IsInvalid) return false;
 
                     int basicInfoSize = Marshal.SizeOf(typeof(FILE_BASIC_INFO));
-                    int standardInfoSize = Marshal.SizeOf(typeof(FILE_STANDARD_INFO));
                     IntPtr basicInfoPtr = Marshal.AllocHGlobal(basicInfoSize);
-                    IntPtr standardInfoPtr = Marshal.AllocHGlobal(standardInfoSize);
 
                     try
                     {
                         if (!GetFileInformationByHandleEx(fileHandle, 0, basicInfoPtr, (uint)basicInfoSize)) return false;
-                        if (!GetFileInformationByHandleEx(fileHandle, 1, standardInfoPtr, (uint)standardInfoSize)) return false;
 
                         FILE_BASIC_INFO basicInfo = (FILE_BASIC_INFO)Marshal.PtrToStructure(basicInfoPtr, typeof(FILE_BASIC_INFO));
-                        FILE_STANDARD_INFO standardInfo = (FILE_STANDARD_INFO)Marshal.PtrToStructure(standardInfoPtr, typeof(FILE_STANDARD_INFO));
 
                         BY_HANDLE_FILE_INFORMATION handleInfo;
                         if (!GetFileInformationByHandle(fileHandle, out handleInfo)) return false;
 
                         metadata = new FileMetadata
                         {
-                            Size = standardInfo.AllocationSize,
                             LastWriteTime = basicInfo.LastWriteTime > 0 ? DateTime.FromFileTimeUtc(basicInfo.LastWriteTime).ToLocalTime() : DateTime.MinValue,
-                            LinkCount = (int)standardInfo.NumberOfLinks
+                            LinkCount = (int)handleInfo.NumberOfLinks
                         };
 
                         if (handleInfo.FileIndexHigh != 0 || handleInfo.FileIndexLow != 0)
@@ -1497,7 +1512,6 @@ namespace MftTreeSizeV8
                     finally
                     {
                         Marshal.FreeHGlobal(basicInfoPtr);
-                        Marshal.FreeHGlobal(standardInfoPtr);
                     }
                 }
             }
