@@ -334,7 +334,7 @@ namespace MftTreeSizeV8
 
             try
             {
-                using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, QUICK_HASH_SIZE, FileOptions.SequentialScan))
+                using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, QUICK_HASH_SIZE, FileOptions.SequentialScan))
                 {
                     if (fileSize <= QUICK_HASH_SIZE)
                     {
@@ -481,6 +481,14 @@ namespace MftTreeSizeV8
             return (value << count) | (value >> (64 - count));
         }
 
+        private static void ProcessStripe(ref ulong v1, ref ulong v2, ref ulong v3, ref ulong v4, byte[] data, int offset)
+        {
+            v1 = Round(v1, BitConverter.ToUInt64(data, offset));
+            v2 = Round(v2, BitConverter.ToUInt64(data, offset + 8));
+            v3 = Round(v3, BitConverter.ToUInt64(data, offset + 16));
+            v4 = Round(v4, BitConverter.ToUInt64(data, offset + 24));
+        }
+
         // Compute full file xxHash64 using streaming (256KB chunks)
         private static ulong ComputeFullHash(string filePath)
         {
@@ -488,7 +496,7 @@ namespace MftTreeSizeV8
             try
             {
                 using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read,
-                       FileShare.Read, 262144, FileOptions.SequentialScan))
+                       FileShare.ReadWrite | FileShare.Delete, 262144, FileOptions.SequentialScan))
                 {
                     long fileLength = fs.Length;
 
@@ -509,42 +517,34 @@ namespace MftTreeSizeV8
 
                         int bytesRead;
                         long totalProcessed = 0;
-                        byte[] remainder = null;
-                        int remainderLen = 0;
+                        byte[] tail = new byte[32];
+                        int tailLen = 0;
 
                         while ((bytesRead = fs.Read(buffer, 0, 262144)) > 0)
                         {
                             int offset = 0;
 
-                            // If we have leftover from previous chunk, combine
-                            if (remainder != null && remainderLen > 0)
+                            // Complete a partial stripe carried over from the previous chunk.
+                            if (tailLen > 0)
                             {
-                                int needed = 32 - remainderLen;
-                                if (bytesRead >= needed)
+                                int bytesNeeded = 32 - tailLen;
+                                int bytesToCopy = Math.Min(bytesNeeded, bytesRead);
+                                Buffer.BlockCopy(buffer, 0, tail, tailLen, bytesToCopy);
+                                tailLen += bytesToCopy;
+                                offset += bytesToCopy;
+
+                                if (tailLen == 32)
                                 {
-                                    byte[] combined = new byte[32];
-                                    Array.Copy(remainder, 0, combined, 0, remainderLen);
-                                    Array.Copy(buffer, 0, combined, remainderLen, needed);
-
-                                    v1 = Round(v1, BitConverter.ToUInt64(combined, 0));
-                                    v2 = Round(v2, BitConverter.ToUInt64(combined, 8));
-                                    v3 = Round(v3, BitConverter.ToUInt64(combined, 16));
-                                    v4 = Round(v4, BitConverter.ToUInt64(combined, 24));
-
-                                    offset = needed;
+                                    ProcessStripe(ref v1, ref v2, ref v3, ref v4, tail, 0);
                                     totalProcessed += 32;
+                                    tailLen = 0;
                                 }
-                                remainder = null;
-                                remainderLen = 0;
                             }
 
                             // Process complete 32-byte blocks
                             while (offset + 32 <= bytesRead)
                             {
-                                v1 = Round(v1, BitConverter.ToUInt64(buffer, offset));
-                                v2 = Round(v2, BitConverter.ToUInt64(buffer, offset + 8));
-                                v3 = Round(v3, BitConverter.ToUInt64(buffer, offset + 16));
-                                v4 = Round(v4, BitConverter.ToUInt64(buffer, offset + 24));
+                                ProcessStripe(ref v1, ref v2, ref v3, ref v4, buffer, offset);
                                 offset += 32;
                                 totalProcessed += 32;
                             }
@@ -552,9 +552,8 @@ namespace MftTreeSizeV8
                             // Save remainder for next iteration
                             if (offset < bytesRead)
                             {
-                                remainderLen = bytesRead - offset;
-                                remainder = new byte[remainderLen];
-                                Array.Copy(buffer, offset, remainder, 0, remainderLen);
+                                tailLen = bytesRead - offset;
+                                Buffer.BlockCopy(buffer, offset, tail, 0, tailLen);
                             }
                         }
 
@@ -576,24 +575,24 @@ namespace MftTreeSizeV8
                         h64 += (ulong)fileLength;
 
                         // Process remaining bytes
-                        if (remainder != null && remainderLen > 0)
+                        if (tailLen > 0)
                         {
                             int idx = 0;
-                            while (remainderLen - idx >= 8)
+                            while (tailLen - idx >= 8)
                             {
-                                h64 ^= Round(0, BitConverter.ToUInt64(remainder, idx));
+                                h64 ^= Round(0, BitConverter.ToUInt64(tail, idx));
                                 h64 = RotateLeft(h64, 27) * PRIME64_1 + PRIME64_4;
                                 idx += 8;
                             }
-                            while (remainderLen - idx >= 4)
+                            while (tailLen - idx >= 4)
                             {
-                                h64 ^= BitConverter.ToUInt32(remainder, idx) * PRIME64_1;
+                                h64 ^= BitConverter.ToUInt32(tail, idx) * PRIME64_1;
                                 h64 = RotateLeft(h64, 23) * PRIME64_2 + PRIME64_3;
                                 idx += 4;
                             }
-                            while (idx < remainderLen)
+                            while (idx < tailLen)
                             {
-                                h64 ^= remainder[idx] * PRIME64_5;
+                                h64 ^= tail[idx] * PRIME64_5;
                                 h64 = RotateLeft(h64, 11) * PRIME64_1;
                                 idx++;
                             }

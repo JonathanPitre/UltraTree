@@ -148,4 +148,40 @@ Describe 'DuplicateFinder' -Tag Unit {
         $baseHash | Should -Be $copyHash
         $variantHash | Should -Not -Be $baseHash
     }
+
+    It 'Full hash distinguishes large files with different tails' {
+        $testRoot = Join-Path $TestDrive 'dedupe-full-hash-large-files'
+        $null = New-Item -Path $testRoot -ItemType Directory -Force
+
+        $basePath = Join-Path $testRoot 'large-base.bin'
+        $copyPath = Join-Path $testRoot 'large-copy.bin'
+        $variantPath = Join-Path $testRoot 'large-variant.bin'
+
+        $length = 300123
+        $baseBytes = New-Object byte[] $length
+        for ($i = 0; $i -lt $baseBytes.Length; $i++) {
+            $baseBytes[$i] = [byte]65
+        }
+
+        $variantBytes = New-Object byte[] $length
+        [Array]::Copy($baseBytes, $variantBytes, $baseBytes.Length)
+
+        for ($i = ($length - 50); $i -lt $length; $i++) {
+            $variantBytes[$i] = [byte]67
+        }
+
+        [System.IO.File]::WriteAllBytes($basePath, $baseBytes)
+        [System.IO.File]::WriteAllBytes($copyPath, $baseBytes)
+        [System.IO.File]::WriteAllBytes($variantPath, $variantBytes)
+
+        $bindingFlags = [System.Reflection.BindingFlags]'NonPublic,Static'
+        $method = [MftTreeSizeV8.DuplicateFinder].GetMethod('ComputeFullHash', $bindingFlags)
+
+        $baseHash = $method.Invoke($null, [object[]]@([string]$basePath))
+        $copyHash = $method.Invoke($null, [object[]]@([string]$copyPath))
+        $variantHash = $method.Invoke($null, [object[]]@([string]$variantPath))
+
+        $baseHash | Should -Be $copyHash
+        $variantHash | Should -Not -Be $baseHash
+    }
 }
