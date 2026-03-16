@@ -378,9 +378,21 @@ UltraTree is designed for seamless integration with NinjaOne RMM. The HTML outpu
 #### Basic Script
 
 ```powershell
-# UltraTree NinjaOne Script - auto-installs if needed
-if (-not (Get-Module -ListAvailable -Name UltraTree)) {
-    Install-Module -Name UltraTree -Scope AllUsers -Force -AllowClobber
+# UltraTree NinjaOne Script - non-interactive safe install, then run
+$ProgressPreference = 'SilentlyContinue'
+$ConfirmPreference = 'None'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) {
+    Install-PackageProvider -Name NuGet -Force -Scope AllUsers -Confirm:$false
+}
+
+if ((Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue).InstallationPolicy -ne 'Trusted') {
+    Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+}
+
+if (-not (Get-Module -ListAvailable -Name UltraTree -ErrorAction SilentlyContinue)) {
+    Install-Module -Name UltraTree -Repository PSGallery -Scope AllUsers -Force -AllowClobber -Confirm:$false
 }
 Import-Module UltraTree -Force
 
@@ -396,10 +408,22 @@ Get-FolderSizes -AllDrives -FindDuplicates |
 #Requires -RunAsAdministrator
 
 try {
+    $ProgressPreference = 'SilentlyContinue'
+    $ConfirmPreference = 'None'
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+    if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) {
+        Install-PackageProvider -Name NuGet -Force -Scope AllUsers -Confirm:$false
+    }
+
+    if ((Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue).InstallationPolicy -ne 'Trusted') {
+        Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+    }
+
     # Install module if not present
-    if (-not (Get-Module -ListAvailable -Name UltraTree)) {
+    if (-not (Get-Module -ListAvailable -Name UltraTree -ErrorAction SilentlyContinue)) {
         Write-Output "Installing UltraTree from PowerShell Gallery..."
-        Install-Module -Name UltraTree -Scope AllUsers -Force -AllowClobber
+        Install-Module -Name UltraTree -Repository PSGallery -Scope AllUsers -Force -AllowClobber -Confirm:$false
     }
     Import-Module UltraTree -Force -ErrorAction Stop
 
@@ -430,20 +454,32 @@ Automatically updates to the latest version from PowerShell Gallery:
 #Requires -RunAsAdministrator
 
 try {
+    $ProgressPreference = 'SilentlyContinue'
+    $ConfirmPreference = 'None'
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+    if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) {
+        Install-PackageProvider -Name NuGet -Force -Scope AllUsers -Confirm:$false
+    }
+
+    if ((Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue).InstallationPolicy -ne 'Trusted') {
+        Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+    }
+
     $moduleName = "UltraTree"
-    $installed = Get-Module -ListAvailable -Name $moduleName | Sort-Object Version -Descending | Select-Object -First 1
+    $installed = Get-Module -ListAvailable -Name $moduleName -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1
 
     if (-not $installed) {
         # First-time install
         Write-Output "Installing $moduleName from PowerShell Gallery..."
-        Install-Module -Name $moduleName -Scope AllUsers -Force -AllowClobber
+        Install-Module -Name $moduleName -Repository PSGallery -Scope AllUsers -Force -AllowClobber -Confirm:$false
     }
     else {
         # Check for updates
         $latest = Find-Module -Name $moduleName -ErrorAction SilentlyContinue
         if ($latest -and $latest.Version -gt $installed.Version) {
             Write-Output "Updating $moduleName from $($installed.Version) to $($latest.Version)..."
-            Update-Module -Name $moduleName -Force
+            Update-Module -Name $moduleName -Force -Confirm:$false
         }
     }
 
@@ -468,6 +504,8 @@ catch {
 ```
 
 > **Note:** Requires internet access to check PSGallery. If offline, continues with installed version.
+>
+> **Important:** NinjaOne often runs PowerShell in a non-interactive `SYSTEM` context. The bootstrap above avoids NuGet and repository trust prompts that would otherwise fail with `ShouldContinue` errors.
 
 #### Lightweight Script (No Duplicates)
 
