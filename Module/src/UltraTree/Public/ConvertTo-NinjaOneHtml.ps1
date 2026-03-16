@@ -8,7 +8,7 @@ function ConvertTo-NinjaOneHtml {
         cards, charts, tables, and cleanup recommendations.
     .PARAMETER ScanResults
         The PSCustomObject output from Get-FolderSizes containing Items, FileTypes,
-        CleanupSuggestions, Duplicates, DriveInfo, and statistics.
+        CleanupSuggestions, Duplicates, LinkedFiles, DriveInfo, and statistics.
     .OUTPUTS
         String containing HTML markup for the report.
     .EXAMPLE
@@ -149,6 +149,10 @@ function ConvertTo-NinjaOneHtml {
         # === DUPLICATES TABLE ===
         if ($ScanResults.Duplicates.Count -gt 0) {
             [void]$html.AppendLine((New-HtmlDuplicatesTable -DuplicateGroups $ScanResults.Duplicates -TotalWasted $ScanResults.TotalDuplicateWasted))
+        }
+
+        if ($ScanResults.LinkedFiles.Count -gt 0) {
+            [void]$html.AppendLine((New-HtmlLinkedFilesTable -LinkedGroups $ScanResults.LinkedFiles))
         }
 
         # === FULL RESULTS TABLE ===

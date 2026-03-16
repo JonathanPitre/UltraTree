@@ -160,4 +160,30 @@ Describe 'HTML Generation Functions' -Tag Unit {
             }
         }
     }
+
+    Context 'New-HtmlLinkedFilesTable' {
+        It 'Returns empty string for null groups' {
+            InModuleScope UltraTree { New-HtmlLinkedFilesTable -LinkedGroups $null | Should -Be "" }
+        }
+
+        It 'Returns empty string for empty groups' {
+            InModuleScope UltraTree { New-HtmlLinkedFilesTable -LinkedGroups @() | Should -Be "" }
+        }
+
+        It 'Generates table with linked file groups' {
+            InModuleScope UltraTree {
+                $groups = @(
+                    [PSCustomObject]@{
+                        FileSize = 11MB
+                        Files = @("C:\Temp\UltraTree-Hardlink-Test\source.bin", "C:\Temp\UltraTree-Hardlink-Test\link-1.bin")
+                    }
+                )
+                $html = New-HtmlLinkedFilesTable -LinkedGroups $groups
+                $html | Should -Match 'Linked Files'
+                $html | Should -Match 'hardlinks'
+                $html | Should -Match 'source.bin'
+                $html | Should -Match 'Shared file record'
+            }
+        }
+    }
 }

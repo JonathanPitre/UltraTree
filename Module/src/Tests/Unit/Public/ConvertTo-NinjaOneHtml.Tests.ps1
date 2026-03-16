@@ -50,6 +50,7 @@ Describe 'ConvertTo-NinjaOneHtml' -Tag Unit {
                 FileTypes = [System.Collections.Generic.List[object]]::new()
                 CleanupSuggestions = [System.Collections.Generic.List[object]]::new()
                 Duplicates = [System.Collections.Generic.List[object]]::new()
+                LinkedFiles = [System.Collections.Generic.List[object]]::new()
                 DriveInfo = [System.Collections.Generic.List[object]]::new()
                 TotalDuplicateWasted = 0
                 TotalFiles = 100
@@ -100,6 +101,20 @@ Describe 'ConvertTo-NinjaOneHtml' -Tag Unit {
         It 'Contains cleanup potential' {
             $html = ConvertTo-NinjaOneHtml -ScanResults $mockScanResults
             $html | Should -Match 'Cleanup Potential'
+        }
+
+        It 'Contains linked files section when present' {
+            $mockScanResults.LinkedFiles.Add([PSCustomObject]@{
+                Drive = 'C:'
+                Identity = 'ABCD'
+                FileSize = 11MB
+                Files = @('C:\Temp\UltraTree-Hardlink-Test\source.bin', 'C:\Temp\UltraTree-Hardlink-Test\link-1.bin')
+                IsLinkedGroup = $true
+            })
+
+            $html = ConvertTo-NinjaOneHtml -ScanResults $mockScanResults
+            $html | Should -Match 'Linked Files'
+            $html | Should -Match 'hardlinks'
         }
 
         It 'Contains version footer' {
