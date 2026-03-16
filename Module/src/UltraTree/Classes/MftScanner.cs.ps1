@@ -47,23 +47,28 @@ namespace MftTreeSizeV8
         public long FileSize;
         public List<string> Files;
         public long WastedSpace;
+        public bool IsLinkedGroup;
     }
 
     public class DuplicateCandidate
     {
         public string Path;
         public long Size;
+        public string FileIdentity;
+        public int LinkCount;
     }
 
     public class DuplicateResult
     {
         public List<DuplicateGroup> Groups;
+        public List<DuplicateGroup> LinkedGroups;
         public long TotalWastedSpace;
         public int TotalDuplicateFiles;
 
         public DuplicateResult()
         {
             Groups = new List<DuplicateGroup>();
+            LinkedGroups = new List<DuplicateGroup>();
             TotalWastedSpace = 0;
             TotalDuplicateFiles = 0;
         }
@@ -212,6 +217,7 @@ namespace MftTreeSizeV8
             // ============ STAGE 1: Group by size ============
             var sw = Stopwatch.StartNew();
             var sizeGroups = new Dictionary<long, List<DuplicateCandidate>>();
+            var linkedGroups = new List<DuplicateGroup>();
             for (int i = 0; i < candidates.Length; i++)
             {
                 DuplicateCandidate candidate = candidates[i];
@@ -227,9 +233,19 @@ namespace MftTreeSizeV8
                 sizeBucket.Add(candidate);
             }
 
-            var sizeCandidates = sizeGroups.Where(g => g.Value.Count >= 2).ToList();
+            var sizeCandidates = new List<KeyValuePair<long, List<DuplicateCandidate>>>();
+            foreach (var sizeGroup in sizeGroups)
+            {
+                var representativeCandidates = CollapseLinkedCandidates(sizeGroup.Value, sizeGroup.Key, linkedGroups);
+                if (representativeCandidates.Count >= 2)
+                {
+                    sizeCandidates.Add(new KeyValuePair<long, List<DuplicateCandidate>>(sizeGroup.Key, representativeCandidates));
+                }
+            }
+
             int stage1Files = sizeCandidates.Sum(g => g.Value.Count);
             int stage1Groups = sizeCandidates.Count;
+            result.LinkedGroups = linkedGroups.OrderByDescending(g => g.FileSize).ThenByDescending(g => g.Files.Count).ToList();
 
             sw.Stop();
             if (verbose) Console.WriteLine("  Stage 1 (size filter): {0:N0} files in {1:N0} groups | {2:N2}s",
@@ -326,6 +342,53 @@ namespace MftTreeSizeV8
             MemoryManager.ForceCleanup();
 
             return result;
+        }
+
+        private static List<DuplicateCandidate> CollapseLinkedCandidates(
+            List<DuplicateCandidate> candidates,
+            long fileSize,
+            List<DuplicateGroup> linkedGroups)
+        {
+            var representativeCandidates = new List<DuplicateCandidate>(candidates.Count);
+            var identityGroups = new Dictionary<string, List<DuplicateCandidate>>(StringComparer.OrdinalIgnoreCase);
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                DuplicateCandidate candidate = candidates[i];
+                if (string.IsNullOrEmpty(candidate.FileIdentity))
+                {
+                    representativeCandidates.Add(candidate);
+                    continue;
+                }
+
+                List<DuplicateCandidate> identityBucket;
+                if (!identityGroups.TryGetValue(candidate.FileIdentity, out identityBucket))
+                {
+                    identityBucket = new List<DuplicateCandidate>();
+                    identityGroups[candidate.FileIdentity] = identityBucket;
+                }
+
+                identityBucket.Add(candidate);
+            }
+
+            foreach (var identityGroup in identityGroups.Values)
+            {
+                representativeCandidates.Add(identityGroup[0]);
+
+                if (identityGroup.Count >= 2)
+                {
+                    linkedGroups.Add(new DuplicateGroup
+                    {
+                        Hash = identityGroup[0].FileIdentity,
+                        FileSize = fileSize,
+                        Files = identityGroup.Select(c => c.Path).ToList(),
+                        WastedSpace = 0,
+                        IsLinkedGroup = true
+                    });
+                }
+            }
+
+            return representativeCandidates;
         }
 
         private static ulong ComputeQuickHash(string filePath, long fileSize)
@@ -681,6 +744,7 @@ namespace MftTreeSizeV8
         private const uint GENERIC_READ = 0x80000000;
         private const uint FILE_SHARE_READ = 0x00000001;
         private const uint FILE_SHARE_WRITE = 0x00000002;
+        private const uint FILE_SHARE_DELETE = 0x00000004;
         private const uint OPEN_EXISTING = 3;
         private const uint FSCTL_ENUM_USN_DATA = 0x000900B3;
         private const uint FSCTL_QUERY_USN_JOURNAL = 0x000900F4;
@@ -698,11 +762,29 @@ namespace MftTreeSizeV8
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         private static extern uint GetCompressedFileSize(string lpFileName, out uint lpFileSizeHigh);
 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GetFileInformationByHandle(SafeFileHandle hFile, out BY_HANDLE_FILE_INFORMATION lpFileInformation);
+
         [StructLayout(LayoutKind.Sequential)]
         private struct USN_JOURNAL_DATA { public ulong UsnJournalID; public long FirstUsn; public long NextUsn; public long LowestValidUsn; public long MaxUsn; public ulong MaximumSize; public ulong AllocationDelta; }
 
         [StructLayout(LayoutKind.Sequential)]
         private struct MFT_ENUM_DATA_V0 { public ulong StartFileReferenceNumber; public long LowUsn; public long HighUsn; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct BY_HANDLE_FILE_INFORMATION
+        {
+            public uint FileAttributes;
+            public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+            public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+            public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+            public uint VolumeSerialNumber;
+            public uint FileSizeHigh;
+            public uint FileSizeLow;
+            public uint NumberOfLinks;
+            public uint FileIndexHigh;
+            public uint FileIndexLow;
+        }
 
         private struct MftEntry
         {
@@ -895,7 +977,9 @@ namespace MftTreeSizeV8
 
                     if (findDuplicates && size >= minDuplicateSize)
                     {
-                        allDuplicateCandidates.Add(new DuplicateCandidate { Path = path, Size = size });
+                        var duplicateCandidate = new DuplicateCandidate { Path = path, Size = size };
+                        PopulateFileIdentity(path, duplicateCandidate);
+                        allDuplicateCandidates.Add(duplicateCandidate);
                     }
 
                     string ext = Path.GetExtension(entry.FileName);
@@ -1179,7 +1263,9 @@ namespace MftTreeSizeV8
 
                         if (findDuplicates && context.DuplicateCandidates != null && size >= minDuplicateSize)
                         {
-                            context.DuplicateCandidates.Add(new DuplicateCandidate { Path = file.FullName, Size = size });
+                            var duplicateCandidate = new DuplicateCandidate { Path = file.FullName, Size = size };
+                            PopulateFileIdentity(file.FullName, duplicateCandidate);
+                            context.DuplicateCandidates.Add(duplicateCandidate);
                         }
 
                         string ext = Path.GetExtension(file.Name);
@@ -1238,6 +1324,34 @@ namespace MftTreeSizeV8
                 Interlocked.Increment(ref context.ErrorCount);
             }
             return totalSize;
+        }
+
+        private static void PopulateFileIdentity(string path, DuplicateCandidate candidate)
+        {
+            try
+            {
+                using (SafeFileHandle fileHandle = CreateFile(path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero))
+                {
+                    if (fileHandle.IsInvalid) return;
+
+                    BY_HANDLE_FILE_INFORMATION fileInfo;
+                    if (!GetFileInformationByHandle(fileHandle, out fileInfo)) return;
+
+                    candidate.LinkCount = (int)fileInfo.NumberOfLinks;
+                    if (fileInfo.FileIndexHigh == 0 && fileInfo.FileIndexLow == 0) return;
+
+                    candidate.FileIdentity = string.Format(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        "{0:X8}:{1:X8}{2:X8}",
+                        fileInfo.VolumeSerialNumber,
+                        fileInfo.FileIndexHigh,
+                        fileInfo.FileIndexLow);
+                }
+            }
+            catch
+            {
+                // Best-effort only; duplicate detection can continue without identity metadata.
+            }
         }
     }
 }

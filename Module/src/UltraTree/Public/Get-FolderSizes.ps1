@@ -123,6 +123,7 @@ function Get-FolderSizes {
         FileTypes            = [System.Collections.Generic.List[object]]::new()
         CleanupSuggestions   = [System.Collections.Generic.List[object]]::new()
         Duplicates           = [System.Collections.Generic.List[object]]::new()
+        LinkedFiles          = [System.Collections.Generic.List[object]]::new()
         DriveInfo            = [System.Collections.Generic.List[object]]::new()
         TotalDuplicateWasted = 0
         TotalFiles           = 0
@@ -217,6 +218,18 @@ function Get-FolderSizes {
                     })
             }
             $allResults.TotalDuplicateWasted += $scanResult.Duplicates.TotalWastedSpace
+        }
+
+        if ($FindDuplicates -and $scanResult.Duplicates -and $scanResult.Duplicates.LinkedGroups) {
+            foreach ($group in $scanResult.Duplicates.LinkedGroups) {
+                $allResults.LinkedFiles.Add([PSCustomObject]@{
+                        Drive        = $drive
+                        Identity     = $group.Hash
+                        FileSize     = $group.FileSize
+                        Files        = $group.Files
+                        IsLinkedGroup = $true
+                    })
+            }
         }
     }
 

@@ -184,4 +184,47 @@ Describe 'DuplicateFinder' -Tag Unit {
         $baseHash | Should -Be $copyHash
         $variantHash | Should -Not -Be $baseHash
     }
+
+    It 'Separates hardlinks from true duplicate waste' {
+        $testRoot = Join-Path $TestDrive 'dedupe-hardlinks'
+        $null = New-Item -Path $testRoot -ItemType Directory -Force
+
+        $pathA = Join-Path $testRoot 'a.bin'
+        $pathB = Join-Path $testRoot 'b.bin'
+        $pathC = Join-Path $testRoot 'c.bin'
+
+        [System.IO.File]::WriteAllText($pathA, ('H' * 4096))
+        [System.IO.File]::WriteAllText($pathB, ('H' * 4096))
+        [System.IO.File]::WriteAllText($pathC, ('H' * 4096))
+
+        $candidateA = [MftTreeSizeV8.DuplicateCandidate]::new()
+        $candidateA.Path = $pathA
+        $candidateA.Size = ([System.IO.FileInfo]$pathA).Length
+        $candidateA.FileIdentity = 'VOL1:FILE1'
+        $candidateA.LinkCount = 2
+
+        $candidateB = [MftTreeSizeV8.DuplicateCandidate]::new()
+        $candidateB.Path = $pathB
+        $candidateB.Size = ([System.IO.FileInfo]$pathB).Length
+        $candidateB.FileIdentity = 'VOL1:FILE1'
+        $candidateB.LinkCount = 2
+
+        $candidateC = [MftTreeSizeV8.DuplicateCandidate]::new()
+        $candidateC.Path = $pathC
+        $candidateC.Size = ([System.IO.FileInfo]$pathC).Length
+        $candidateC.FileIdentity = 'VOL1:FILE2'
+        $candidateC.LinkCount = 1
+
+        $result = [MftTreeSizeV8.DuplicateFinder]::FindDuplicates(@($candidateA, $candidateB, $candidateC), 0, $false)
+
+        $result.LinkedGroups.Count | Should -Be 1
+        @($result.LinkedGroups[0].Files) | Should -Contain $pathA
+        @($result.LinkedGroups[0].Files) | Should -Contain $pathB
+        $result.LinkedGroups[0].WastedSpace | Should -Be 0
+
+        $result.Groups.Count | Should -Be 1
+        @($result.Groups[0].Files) | Should -Contain $pathA
+        @($result.Groups[0].Files) | Should -Contain $pathC
+        $result.TotalWastedSpace | Should -Be ([System.IO.FileInfo]$pathA).Length
+    }
 }
