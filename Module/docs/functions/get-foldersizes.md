@@ -23,8 +23,8 @@ Get-FolderSizes -AllDrives [-ExcludeDrives <String[]>] [-MaxDepth <Int32>] [-Top
 | **Top** | Int32 | `40` | 1-1000 | Maximum number of items to return per drive. |
 | **FolderSize** | Switch | `$false` | - | Show only folders in results (excludes files). |
 | **FileSize** | Switch | `$false` | - | Show only large files in results (excludes folders). |
-| **FindDuplicates** | Switch | `$false` | - | Enable duplicate file detection using xxHash64. |
-| **MinDuplicateSize** | Int64 | `10MB` | 0+ | Minimum file size to consider for duplicate detection. |
+| **FindDuplicates** | Switch | `$false` | - | Enable staged duplicate detection. True duplicate groups are returned in `Duplicates`; NTFS hardlinks are returned separately in `LinkedFiles`. |
+| **MinDuplicateSize** | Int64 | `10MB` | 0+ | Minimum on-disk file size to consider for duplicate detection. This uses compressed/allocated size semantics, not sparse logical length. |
 | **VerboseOutput** | Switch | `$false` | - | Display progress information during scan. |
 
 ## Examples
@@ -93,8 +93,9 @@ $results = Get-FolderSizes -AllDrives -FindDuplicates -VerboseOutput
 | **FileTypes** | List | File extension statistics |
 | **CleanupSuggestions** | List | Identified cleanup opportunities |
 | **Duplicates** | List | Duplicate file groups (if `-FindDuplicates` specified) |
+| **LinkedFiles** | List | NTFS hardlink groups reported separately from duplicate waste |
 | **DriveInfo** | List | Drive capacity and usage for each scanned drive |
-| **TotalDuplicateWasted** | Int64 | Total bytes wasted by duplicate files |
+| **TotalDuplicateWasted** | Int64 | Total reclaimable bytes from duplicate files, excluding hardlinks |
 | **TotalFiles** | Int64 | Total files scanned |
 | **TotalFolders** | Int64 | Total folders scanned |
 | **TotalErrorCount** | Int64 | Count of access errors encountered |
@@ -144,6 +145,28 @@ Each item in the `Duplicates` collection (when `-FindDuplicates` is used):
     WastedSpace = 104857600       # Wasted bytes (FileSize × (Count-1))
 }
 ```
+
+### LinkedFiles Structure
+
+Each item in the `LinkedFiles` collection:
+
+```powershell
+[PSCustomObject]@{
+    Drive         = "C:"                                # Drive letter
+    Identity      = "A6E7F19B:008600000004173F"        # NTFS file identity
+    FileSize      = 2371584                            # On-disk size of the shared file
+    Files         = @("C:\path1\file.bin", "C:\path2\file.bin")
+    IsLinkedGroup = $true
+}
+```
+
+## Duplicate and Linked-File Semantics
+
+- `Duplicates` contains separate files with identical content.
+- `LinkedFiles` contains NTFS hardlinks, which are multiple paths to the same underlying file record.
+- `TotalDuplicateWasted` reports reclaimable bytes from duplicate groups only.
+- Hardlinks are excluded from duplicate waste totals.
+- `MinDuplicateSize` uses on-disk size semantics. Sparse files can have a logical length larger than the threshold used for duplicate candidate filtering.
 
 ### FileTypes Structure
 
@@ -208,4 +231,5 @@ $results.Items | Export-Csv -Path "DiskUsage.csv" -NoTypeInformation
 - Requires Administrator privileges for full access to all folders
 - Uses NTFS MFT enumeration for maximum performance
 - Duplicate detection uses xxHash64 for fast, reliable hashing
+- Hardlinks are reported separately in `LinkedFiles` and do not contribute to `TotalDuplicateWasted`
 - Access errors are tracked but don't stop the scan

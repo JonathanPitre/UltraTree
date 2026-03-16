@@ -23,17 +23,22 @@ function Get-FolderSizes {
     .PARAMETER ExcludeDrives
         Array of drive letters to exclude when using -AllDrives.
     .PARAMETER FindDuplicates
-        Enable duplicate file detection using xxHash64.
+        Enable duplicate file detection using a staged xxHash64 pipeline.
+        Duplicate groups represent separate files with identical content. NTFS hardlinks
+        are reported separately and are not counted as duplicate waste.
     .PARAMETER MinDuplicateSize
-        Minimum file size for duplicate detection (default: from config, typically 10MB).
+        Minimum on-disk file size to consider for duplicate detection (default: from config,
+        typically 10MB). This threshold uses the same compressed/allocated size semantics as
+        the main scan, not the logical end-of-file length for sparse files.
     .OUTPUTS
         PSCustomObject with properties:
         - Items: List of folders/files with size information
         - FileTypes: File type statistics by extension
         - CleanupSuggestions: Identified cleanup opportunities
         - Duplicates: Duplicate file groups (if -FindDuplicates specified)
+        - LinkedFiles: NTFS hardlink groups reported separately from duplicates
         - DriveInfo: Drive capacity and usage information
-        - TotalDuplicateWasted: Total wasted space from duplicates
+        - TotalDuplicateWasted: Total reclaimable bytes from duplicate groups, excluding hardlinks
         - TotalFiles: Count of files scanned
         - TotalFolders: Count of folders scanned
         - TotalErrorCount: Count of access errors encountered
@@ -49,6 +54,8 @@ function Get-FolderSizes {
     .NOTES
         Requires administrator privileges for MFT-based scanning.
         Falls back to standard enumeration if MFT access is unavailable.
+        Duplicate waste is reported as reclaimable bytes. Hardlinked files are surfaced in
+        the LinkedFiles collection and are not counted in TotalDuplicateWasted.
     #>
     [CmdletBinding()]
     param (

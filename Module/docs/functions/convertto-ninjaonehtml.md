@@ -77,8 +77,16 @@ Each scanned drive gets its own section with:
 If `-FindDuplicates` was used:
 
 - **Duplicate Groups** - Files with identical content
-- **Wasted Space** - Space that could be recovered
+- **Wasted Space** - Reclaimable space from duplicate groups
 - **File Paths** - Locations of duplicate files
+
+### Linked Files Section
+
+If linked NTFS files are detected:
+
+- **Linked Files** - Hardlinked paths that reference the same underlying file record
+- **Separate from Duplicates** - These are not counted as reclaimable duplicate waste
+- **Hardlink Context** - Helps distinguish true duplicated content from shared NTFS file records
 
 ### Results Table
 
@@ -115,3 +123,4 @@ The HTML output is controlled by the module's configuration. See [Configuration]
 - HTML includes external CDN references for Bootstrap, Font Awesome, and Charts.css
 - Best viewed in modern browsers or NinjaOne WYSIWYG fields
 - For offline viewing, external resources need internet connectivity
+- Duplicate waste in the HTML report excludes NTFS hardlinks, which are shown in a dedicated linked-files section when present
