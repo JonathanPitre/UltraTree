@@ -1,4 +1,4 @@
-function ConvertTo-NinjaOneHtml {
+﻿function ConvertTo-NinjaOneHtml {
     <#
     .SYNOPSIS
         Converts scan results to NinjaOne-compatible HTML report.
@@ -80,6 +80,7 @@ function ConvertTo-NinjaOneHtml {
             $freeColor = Get-ThemeColor -Severity "Free"
 
             $driveCleanup = @($ScanResults.CleanupSuggestions | Where-Object { $_.Drive -eq $drive.Drive })
+            $driveFiles = @($ScanResults.Items | Where-Object { $_.Drive -eq $drive.Drive -and -not $_.IsDirectory } | Select-Object -First $cfg.Display.MaxTopFiles)
             $driveFolders = @($ScanResults.Items | Where-Object { $_.Drive -eq $drive.Drive -and $_.IsDirectory } | Select-Object -First $cfg.Display.MaxTopFolders)
             $driveFileTypes = @($ScanResults.FileTypes | Where-Object { $_.Drive -eq $drive.Drive } | Select-Object -First $cfg.Display.MaxFileTypes)
 
@@ -122,11 +123,19 @@ function ConvertTo-NinjaOneHtml {
             }
             else {
                 $checkIcon = Get-ThemeIcon -IconName "CheckCircle"
-                [void]$html.AppendLine("<div class=`"card flex-grow-1`"><div class=`"card-title-box`"><div class=`"card-title`"><i class=`"$checkIcon`" style=`"color: $successColor;`"></i>&nbsp;&nbsp;No Cleanup Needed</div></div><div class=`"card-body`"><p style=`"color: #666;`">No significant cleanup opportunities found.</p></div></div>")
+                [void]$html.AppendLine("<div class=`"card flex-grow-1`"><div class=`"card-title-box`"><div class=`"card-title`"><i class=`"$checkIcon`" style=`"color: $successColor;`"></i>&nbsp;&nbsp;No Cleanup Needed</div></div><div class=`"card-body`"><p class=`"stat-desc`">No significant cleanup opportunities found.</p></div></div>")
             }
             [void]$html.AppendLine('</div>')
 
             [void]$html.AppendLine('<div class="col-xl-4 col-lg-4 col-md-12 d-flex">')
+            if ($driveFiles.Count -gt 0) {
+                $fileChartItems = $driveFiles | ForEach-Object {
+                    $label = Split-Path $_.Path -Leaf
+                    if ([string]::IsNullOrEmpty($label)) { $label = $_.Path }
+                    @{ Label = $label; Value = $_.SizeBytes }
+                }
+                [void]$html.AppendLine((New-HtmlBarChart -Items $fileChartItems -Title "Top Files" -CardStyle "margin-bottom: 12px;"))
+            }
             if ($driveFolders.Count -gt 0) {
                 $chartItems = $driveFolders | ForEach-Object {
                     $label = Split-Path $_.Path -Leaf

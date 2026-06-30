@@ -1,4 +1,4 @@
-function New-HtmlBarChart {
+﻿function New-HtmlBarChart {
     <#
     .SYNOPSIS
         Creates a horizontal bar chart using Charts.css.
@@ -8,10 +8,13 @@ function New-HtmlBarChart {
         Array of objects with Label and Value properties.
     .PARAMETER Title
         The chart title.
+    .PARAMETER CardStyle
+        Optional inline CSS for the card element.
     #>
     param (
         [array]$Items,
-        [string]$Title = "Top Items"
+        [string]$Title = "Top Items",
+        [string]$CardStyle = ""
     )
 
     if ($null -eq $Items -or $Items.Count -eq 0) { return "" }
@@ -47,5 +50,5 @@ $($rows -join "`n")
     </table>
 "@
 
-    New-HtmlCard -Title $Title -Icon $icon -Body $body -BodyStyle "padding: 8px;"
+    New-HtmlCard -Title $Title -Icon $icon -Body $body -BodyStyle "padding: 8px;" -CardStyle $CardStyle
 }

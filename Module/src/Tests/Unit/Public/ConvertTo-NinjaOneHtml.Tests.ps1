@@ -1,4 +1,4 @@
-BeforeAll {
+﻿BeforeAll {
     Set-Location -Path $PSScriptRoot
     $ModuleName = 'UltraTree'
     $PathToManifest = [System.IO.Path]::Combine('..', '..', '..', $ModuleName, "$ModuleName.psd1")
@@ -75,6 +75,15 @@ Describe 'ConvertTo-NinjaOneHtml' -Tag Unit {
                 IsDirectory = $true
                 LastModified = "2024-01-01"
             })
+
+            $mockScanResults.Items.Add([PSCustomObject]@{
+                Drive = "C:"
+                Path = "C:\pagefile.sys"
+                Size = "8.00 GB"
+                SizeBytes = 8GB
+                IsDirectory = $false
+                LastModified = "2024-01-01"
+            })
         }
 
         It 'Returns string output' {
@@ -105,6 +114,21 @@ Describe 'ConvertTo-NinjaOneHtml' -Tag Unit {
         It 'Contains version footer' {
             $html = ConvertTo-NinjaOneHtml -ScanResults $mockScanResults
             $html | Should -Match 'TreeSize v1.0.0'
+        }
+
+        It 'Contains Top Files chart when file items exist' {
+            $html = ConvertTo-NinjaOneHtml -ScanResults $mockScanResults
+            $html | Should -Match 'Top Files'
+        }
+
+        It 'Contains Top Folders chart when folder items exist' {
+            $html = ConvertTo-NinjaOneHtml -ScanResults $mockScanResults
+            $html | Should -Match 'Top Folders'
+        }
+
+        It 'Does not use hardcoded light-theme muted text color in fragments' {
+            $html = ConvertTo-NinjaOneHtml -ScanResults $mockScanResults
+            $html | Should -Not -Match 'color: #666'
         }
 
         It 'Accepts pipeline input' {

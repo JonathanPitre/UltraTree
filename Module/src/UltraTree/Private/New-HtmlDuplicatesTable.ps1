@@ -1,4 +1,4 @@
-function New-HtmlDuplicatesTable {
+﻿function New-HtmlDuplicatesTable {
     <#
     .SYNOPSIS
         Creates a table displaying duplicate file groups.
@@ -38,8 +38,7 @@ function New-HtmlDuplicatesTable {
             }) -join "<br>"
 
         if ($remaining -gt 0) {
-            $mutedColor = Get-ThemeColor -Severity "Muted"
-            $pathList += "<br><span style=`"color: $mutedColor;`">+$remaining more</span>"
+            $pathList += "<br><span class=`"stat-desc`">+$remaining more</span>"
         }
 
         $severity = Get-WastedSpaceSeverity -WastedBytes $group.WastedSpace
@@ -48,15 +47,15 @@ function New-HtmlDuplicatesTable {
 
         @"
     <tr class="$rowClass" style="border-left: 3px solid $borderColor;">
-      <td style="padding: 1px 3px; font-size: 0.7em; white-space: nowrap; vertical-align: top;"><strong>$fileName</strong><br><span style="color: #888;">$fileCount &times; $sizeText</span></td>
-      <td style="padding: 1px 3px; font-size: 0.65em; color: #666; line-height: 1.0;">$pathList</td>
+      <td style="padding: 1px 3px; font-size: 0.7em; white-space: nowrap; vertical-align: top;"><strong>$fileName</strong><br><span class="stat-desc">$fileCount &times; $sizeText</span></td>
+      <td class="stat-desc" style="padding: 1px 3px; font-size: 0.65em; line-height: 1.0;">$pathList</td>
       <td style="padding: 1px 3px; font-size: 0.7em; text-align: right; vertical-align: top;">$wastedText</td>
     </tr>
 "@
     }
 
     @"
-<h4 style="margin: 16px 0 8px 0;"><i class="$copyIcon"></i> Duplicate Files <span style="font-weight: normal; font-size: 0.85em; color: #666;">(Wasted: $totalWastedText)</span></h4>
+<h4 style="margin: 16px 0 8px 0;"><i class="$copyIcon"></i> Duplicate Files <span class="stat-desc" style="font-weight: normal; font-size: 0.85em;">(Wasted: $totalWastedText)</span></h4>
 <table style="width: 100%; border-collapse: collapse; border-spacing: 0;">
   <thead>
     <tr>

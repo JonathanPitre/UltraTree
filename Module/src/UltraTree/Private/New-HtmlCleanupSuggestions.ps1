@@ -1,4 +1,4 @@
-function New-HtmlCleanupSuggestions {
+﻿function New-HtmlCleanupSuggestions {
     <#
     .SYNOPSIS
         Creates cleanup suggestions display with categorization.
@@ -25,7 +25,7 @@ function New-HtmlCleanupSuggestions {
             $category = $script:CleanupCategories | Where-Object { $_.Name -eq $sug.Category }
             $displayName = if ($category) { $category.DisplayName } else { $sug.Path }
 
-            "<li style=`"margin-bottom: 8px;`"><i class=`"$($catInfo.Icon)`" style=`"color: $($catInfo.Color); margin-right: 8px;`"></i><strong>$displayName</strong><br><span style=`"font-size: 0.9em; color: #666;`">$sizeText</span></li>"
+            "<li style=`"margin-bottom: 8px;`"><i class=`"$($catInfo.Icon)`" style=`"color: $($catInfo.Color); margin-right: 8px;`"></i><strong>$displayName</strong><br><span class=`"stat-desc`" style=`"font-size: 0.9em;`">$sizeText</span></li>"
         }
 
         $body = @"

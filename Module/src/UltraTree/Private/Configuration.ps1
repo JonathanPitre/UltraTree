@@ -1,4 +1,4 @@
-# UltraTree Module Configuration
+﻿# UltraTree Module Configuration
 # Centralized configuration with nested theme/thresholds
 
 $script:Config = @{
@@ -19,6 +19,7 @@ $script:Config = @{
         MaxDuplicateGroups = 20     # Max duplicate groups to display
         MaxPathsPerGroup   = 5      # Max paths shown per duplicate group
         MaxTopFolders      = 8      # Top folders in bar chart
+        MaxTopFiles        = 8      # Top files in bar chart
         MaxFileTypes       = 10     # Top file types to show
         MaxResults         = 40     # Max items in results table
         MaxPathLength      = 50     # Truncate paths longer than this

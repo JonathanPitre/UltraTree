@@ -1,4 +1,4 @@
-function New-HtmlTable {
+﻿function New-HtmlTable {
     <#
     .SYNOPSIS
         Creates a table of files/folders with size and type information.
@@ -31,7 +31,7 @@ function New-HtmlTable {
     <tr class="$rowClass">
       <td>$typeIcon $($item.Path)</td>
       <td style="text-align: right; white-space: nowrap;">$($item.Size)</td>
-      <td style="text-align: right; white-space: nowrap; color: #666;">$lastMod</td>
+      <td style="text-align: right; white-space: nowrap;"><span class="stat-desc">$lastMod</span></td>
     </tr>
 "@
     }
