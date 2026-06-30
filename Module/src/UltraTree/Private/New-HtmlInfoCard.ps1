@@ -1,4 +1,4 @@
-function New-HtmlInfoCard {
+﻿function New-HtmlInfoCard {
     <#
     .SYNOPSIS
         Creates an info/alert card with icon and description.
@@ -21,12 +21,17 @@ function New-HtmlInfoCard {
     $style = Get-SeverityStyle -Severity $Type
     $classExtra = if ($Type -eq "Info") { "" } else { " $($Type.ToLower())" }
 
+    # NinjaOne dark mode inherits light page text, but info-card.* keeps light-theme
+    # tinted backgrounds in WYSIWYG fields — force readable text on those cards.
+    $titleStyle = ' style="color: #333;"'
+    $descStyle = ' style="color: #666;"'
+
     @"
 <div class="info-card$classExtra">
   <i class="info-icon $($style.Icon)"></i>
   <div class="info-text">
-    <div class="info-title">$Title</div>
-    <div class="info-description">$Description</div>
+    <div class="info-title"$titleStyle>$Title</div>
+    <div class="info-description"$descStyle>$Description</div>
   </div>
 </div>
 "@

@@ -1,4 +1,4 @@
-BeforeAll {
+﻿BeforeAll {
     Set-Location -Path $PSScriptRoot
     $ModuleName = 'UltraTree'
     $PathToManifest = [System.IO.Path]::Combine('..', '..', '..', $ModuleName, "$ModuleName.psd1")
@@ -42,6 +42,8 @@ Describe 'HTML Generation Functions' -Tag Unit {
                 $html = New-HtmlInfoCard -Title "Test" -Description "Desc" -Type "Warning"
                 $html | Should -Match 'class="info-card warning"'
                 $html | Should -Match 'fa-solid fa-triangle-exclamation'
+                $html | Should -Match 'info-title" style="color: #333;"'
+                $html | Should -Match 'info-description" style="color: #666;"'
             }
         }
 

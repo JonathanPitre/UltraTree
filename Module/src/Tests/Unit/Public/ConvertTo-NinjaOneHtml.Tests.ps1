@@ -59,31 +59,31 @@ Describe 'ConvertTo-NinjaOneHtml' -Tag Unit {
 
             # Add mock drive info
             $mockScanResults.DriveInfo.Add([PSCustomObject]@{
-                Drive = "C:"
-                TotalSize = 500GB
-                UsedSpace = 250GB
-                FreeSpace = 250GB
-                UsedPercent = 50.0
-            })
+                    Drive = 'C:'
+                    TotalSize = 500GB
+                    UsedSpace = 250GB
+                    FreeSpace = 250GB
+                    UsedPercent = 50.0
+                })
 
             # Add mock items
             $mockScanResults.Items.Add([PSCustomObject]@{
-                Drive = "C:"
-                Path = "C:\Windows"
-                Size = "25.00 GB"
-                SizeBytes = 25GB
-                IsDirectory = $true
-                LastModified = "2024-01-01"
-            })
+                    Drive = 'C:'
+                    Path = 'C:\Windows'
+                    Size = '25.00 GB'
+                    SizeBytes = 25GB
+                    IsDirectory = $true
+                    LastModified = '2024-01-01'
+                })
 
             $mockScanResults.Items.Add([PSCustomObject]@{
-                Drive = "C:"
-                Path = "C:\pagefile.sys"
-                Size = "8.00 GB"
-                SizeBytes = 8GB
-                IsDirectory = $false
-                LastModified = "2024-01-01"
-            })
+                    Drive = 'C:'
+                    Path = 'C:\pagefile.sys'
+                    Size = '8.00 GB'
+                    SizeBytes = 8GB
+                    IsDirectory = $false
+                    LastModified = '2024-01-01'
+                })
         }
 
         It 'Returns string output' {
@@ -126,9 +126,32 @@ Describe 'ConvertTo-NinjaOneHtml' -Tag Unit {
             $html | Should -Match 'Top Folders'
         }
 
-        It 'Does not use hardcoded light-theme muted text color in fragments' {
+        It 'Does not use hardcoded muted text outside info cards' {
             $html = ConvertTo-NinjaOneHtml -ScanResults $mockScanResults
-            $html | Should -Not -Match 'color: #666'
+            $htmlWithoutInfoCards = ($html -split '<div class="info-card')[0]
+            if ($htmlWithoutInfoCards) {
+                $htmlWithoutInfoCards | Should -Not -Match 'color: #666'
+            }
+        }
+
+        It 'Uses explicit dark text on warning info cards' {
+            $mockWithErrors = [PSCustomObject]@{
+                Items = $mockScanResults.Items
+                FileTypes = $mockScanResults.FileTypes
+                CleanupSuggestions = $mockScanResults.CleanupSuggestions
+                Duplicates = $mockScanResults.Duplicates
+                DriveInfo = $mockScanResults.DriveInfo
+                TotalDuplicateWasted = 0
+                TotalFiles = 100
+                TotalFolders = 20
+                TotalErrorCount = 100
+            }
+
+            $html = ConvertTo-NinjaOneHtml -ScanResults $mockWithErrors
+            $html | Should -Match 'info-card warning'
+            $html | Should -Match 'Access Errors'
+            $html | Should -Match 'info-title" style="color: #333;"'
+            $html | Should -Match 'info-description" style="color: #666;"'
         }
 
         It 'Accepts pipeline input' {
