@@ -1,4 +1,4 @@
-function New-HtmlWrapper {
+﻿function New-HtmlWrapper {
     <#
     .SYNOPSIS
         Wraps HTML fragment with full document including CSS/JS dependencies.
@@ -16,6 +16,7 @@ function New-HtmlWrapper {
         Get-FolderSizes -AllDrives | ConvertTo-NinjaOneHtml | New-HtmlWrapper | Out-File "report.html"
     #>
     [CmdletBinding()]
+    [OutputType([string])]
     param (
         [Parameter(ValueFromPipeline)]
         [string]$Content,

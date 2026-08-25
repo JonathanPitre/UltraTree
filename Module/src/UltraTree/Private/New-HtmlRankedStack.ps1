@@ -2,9 +2,14 @@
     <#
     .SYNOPSIS
         Stacks ranked table cards full-width for NinjaOne WYSIWYG layout.
+    .DESCRIPTION
+        Wraps one or more HTML card fragments in a full-width Bootstrap row so
+        Top Files and Top Folders tables stack vertically in NinjaOne WYSIWYG fields.
     .PARAMETER Sections
         HTML card fragments (e.g. from New-HtmlTable).
     #>
+    [CmdletBinding()]
+    [OutputType([string])]
     param (
         [string[]]$Sections
     )
