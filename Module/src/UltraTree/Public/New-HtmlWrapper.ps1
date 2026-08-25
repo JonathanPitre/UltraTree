@@ -123,7 +123,7 @@
         }
         .tag.disabled, .tag.warning {
             background-color: #f0ad4e;
-            color: #333;
+            color: white;
         }
         table {
             width: 100%;

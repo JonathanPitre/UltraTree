@@ -76,6 +76,8 @@ Describe 'HTML Generation Functions' -Tag Unit {
             InModuleScope UltraTree {
                 $html = New-HtmlTag -Text "Critical" -Type "expired"
                 $html | Should -Match 'class="tag expired"'
+                $html | Should -Match 'background-color: #d9534f'
+                $html | Should -Match 'color: #fff'
             }
         }
 
@@ -83,6 +85,8 @@ Describe 'HTML Generation Functions' -Tag Unit {
             InModuleScope UltraTree {
                 $html = New-HtmlTag -Text "Warning" -Type "disabled"
                 $html | Should -Match 'class="tag disabled"'
+                $html | Should -Match 'background-color: #f0ad4e'
+                $html | Should -Match 'color: #fff'
             }
         }
     }
