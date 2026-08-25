@@ -10,11 +10,14 @@
     .PARAMETER Type
         Optional type: empty string (default), "disabled", or "expired".
     #>
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'None')]
     param (
         [string]$Text,
         [ValidateSet("", "disabled", "expired")]
         [string]$Type = ""
     )
+
+    if (-not $PSCmdlet.ShouldProcess($Text, 'Generate HTML tag')) { return '' }
 
     $classExtra = if ($Type) { " $Type" } else { "" }
     $baseStyle = 'display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;'

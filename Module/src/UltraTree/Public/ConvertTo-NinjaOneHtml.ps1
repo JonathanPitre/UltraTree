@@ -163,8 +163,7 @@
             [void]$html.AppendLine('<div class="col-xl-6 col-lg-6 col-md-12 d-flex flex-column">')
             if ($driveCleanup.Count -gt 0) {
                 [void]$html.AppendLine((New-HtmlCleanupSuggestions -Suggestions $driveCleanup -Compact))
-            }
-            else {
+            } else {
                 $checkIcon = Get-ThemeIcon -IconName "CheckCircle"
                 [void]$html.AppendLine("<div class=`"card flex-grow-1`"><div class=`"card-title-box`"><div class=`"card-title`"><i class=`"$checkIcon`" style=`"color: $successColor;`"></i>&nbsp;&nbsp;No Cleanup Needed</div></div><div class=`"card-body`"><p class=`"stat-desc`">No significant cleanup opportunities found.</p></div></div>")
             }

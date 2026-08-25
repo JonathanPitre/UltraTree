@@ -11,12 +11,15 @@
     .PARAMETER Type
         The card type: Info, Warning, Danger, or Success.
     #>
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'None')]
     param (
         [string]$Title,
         [string]$Description,
         [ValidateSet("Info", "Warning", "Danger", "Success")]
         [string]$Type = "Info"
     )
+
+    if (-not $PSCmdlet.ShouldProcess($Title, 'Generate HTML info card')) { return '' }
 
     $style = Get-SeverityStyle -Severity $Type
     $classExtra = if ($Type -eq "Info") { "" } else { " $($Type.ToLower())" }

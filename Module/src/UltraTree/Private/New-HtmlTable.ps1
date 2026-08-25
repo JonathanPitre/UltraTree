@@ -11,11 +11,14 @@
     .PARAMETER Icon
         Optional FontAwesome icon class for the title.
     #>
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'None')]
     param (
         [array]$Items,
         [string]$Title = "Results",
         [string]$Icon = ""
     )
+
+    if (-not $PSCmdlet.ShouldProcess($Title, 'Generate HTML table')) { return '' }
 
     if (-not $Icon) { $Icon = Get-ThemeIcon -IconName "Folder" }
     $folderIcon = Get-ThemeIcon -IconName "Folder"

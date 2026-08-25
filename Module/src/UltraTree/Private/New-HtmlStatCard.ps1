@@ -1,4 +1,4 @@
-function New-HtmlStatCard {
+﻿function New-HtmlStatCard {
     <#
     .SYNOPSIS
         Creates a stat card with value, description, and optional icon.
@@ -13,12 +13,15 @@ function New-HtmlStatCard {
     .PARAMETER Icon
         Optional FontAwesome icon class.
     #>
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'None')]
     param (
         [string]$Value,
         [string]$Description,
         [string]$Color = "",
         [string]$Icon = ""
     )
+
+    if (-not $PSCmdlet.ShouldProcess($Description, 'Generate HTML stat card')) { return '' }
 
     if (-not $Color) { $Color = Get-ThemeColor -Severity "Primary" }
     $iconHtml = if ($Icon) { "<i class=`"$Icon`" style=`"margin-right: 8px;`"></i>" } else { "" }

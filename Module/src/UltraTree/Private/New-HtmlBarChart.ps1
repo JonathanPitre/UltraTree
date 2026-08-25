@@ -11,6 +11,7 @@
     .PARAMETER CardStyle
         Optional inline CSS for the card element.
     #>
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'None')]
     param (
         [array]$Items,
         [string]$Title = "Top Items",
@@ -18,6 +19,7 @@
     )
 
     if ($null -eq $Items -or $Items.Count -eq 0) { return "" }
+    if (-not $PSCmdlet.ShouldProcess($Title, 'Generate HTML bar chart')) { return '' }
 
     # Find max value (can't use Measure-Object with hashtables)
     $maxValue = 0

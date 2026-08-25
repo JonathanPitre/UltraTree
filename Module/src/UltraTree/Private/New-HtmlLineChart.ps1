@@ -1,4 +1,4 @@
-function New-HtmlLineChart {
+﻿function New-HtmlLineChart {
     <#
     .SYNOPSIS
         Creates a line/segment chart showing disk usage.
@@ -9,10 +9,13 @@ function New-HtmlLineChart {
     .PARAMETER Total
         The total value for calculating percentages.
     #>
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'None')]
     param (
         [array]$Segments,
         [long]$Total
     )
+
+    if (-not $PSCmdlet.ShouldProcess('disk usage chart', 'Generate HTML line chart')) { return '' }
 
     if ($Total -eq 0) { $Total = 1 }
 

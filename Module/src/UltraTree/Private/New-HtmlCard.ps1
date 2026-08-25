@@ -1,4 +1,4 @@
-function New-HtmlCard {
+﻿function New-HtmlCard {
     <#
     .SYNOPSIS
         Base card template - other card functions should use this.
@@ -15,6 +15,7 @@ function New-HtmlCard {
     .PARAMETER CardStyle
         Optional inline CSS for the card element.
     #>
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'None')]
     param (
         [string]$Title,
         [string]$Icon = "",
@@ -22,6 +23,8 @@ function New-HtmlCard {
         [string]$BodyStyle = "",
         [string]$CardStyle = ""
     )
+
+    if (-not $PSCmdlet.ShouldProcess($Title, 'Generate HTML card')) { return '' }
 
     $iconHtml = if ($Icon) { "<i class=`"$Icon`"></i>&nbsp;&nbsp;" } else { "" }
     $bodyStyleAttr = if ($BodyStyle) { " style=`"$BodyStyle`"" } else { "" }
