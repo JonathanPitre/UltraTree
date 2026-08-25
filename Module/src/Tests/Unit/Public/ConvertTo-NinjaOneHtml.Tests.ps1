@@ -18,6 +18,14 @@ Describe 'ConvertTo-NinjaOneHtml' -Tag Unit {
             $command = Get-Command ConvertTo-NinjaOneHtml
             $command.Parameters['ScanResults'].Attributes.ValueFromPipeline | Should -Contain $true
         }
+
+        It 'Has optional MaxTopFiles, MaxTopFolders, ShowAllResults, and FooterSuffix parameters' {
+            $command = Get-Command ConvertTo-NinjaOneHtml
+            $command.Parameters.ContainsKey('MaxTopFiles') | Should -Be $true
+            $command.Parameters.ContainsKey('MaxTopFolders') | Should -Be $true
+            $command.Parameters.ContainsKey('ShowAllResults') | Should -Be $true
+            $command.Parameters.ContainsKey('FooterSuffix') | Should -Be $true
+        }
     }
 
     Context 'Help documentation' {
@@ -111,19 +119,27 @@ Describe 'ConvertTo-NinjaOneHtml' -Tag Unit {
             $html | Should -Match 'Cleanup Potential'
         }
 
-        It 'Contains version footer' {
+        It 'Contains UltraTree version footer' {
             $html = ConvertTo-NinjaOneHtml -ScanResults $mockScanResults
-            $html | Should -Match 'TreeSize v1.0.0'
+            $html | Should -Match 'UltraTree v1.0.2'
+            $html | Should -Not -Match 'TreeSize v'
         }
 
-        It 'Contains Top Files chart when file items exist' {
+        It 'Contains Top Files ranked table when file items exist' {
             $html = ConvertTo-NinjaOneHtml -ScanResults $mockScanResults
             $html | Should -Match 'Top Files'
+            $html | Should -Match '<table style="width: 100%;">'
         }
 
-        It 'Contains Top Folders chart when folder items exist' {
+        It 'Contains Top Folders ranked table when folder items exist' {
             $html = ConvertTo-NinjaOneHtml -ScanResults $mockScanResults
             $html | Should -Match 'Top Folders'
+        }
+
+        It 'Uses two-column Cleanup and File Types layout' {
+            $html = ConvertTo-NinjaOneHtml -ScanResults $mockScanResults
+            $html | Should -Match 'col-xl-6 col-lg-6 col-md-12 d-flex flex-column'
+            $html | Should -Not -Match 'col-xl-4 col-lg-4 col-md-12 d-flex'
         }
 
         It 'Does not use hardcoded muted text outside info cards' {
@@ -131,6 +147,7 @@ Describe 'ConvertTo-NinjaOneHtml' -Tag Unit {
             $htmlWithoutInfoCards = ($html -split '<div class="info-card')[0]
             if ($htmlWithoutInfoCards) {
                 $htmlWithoutInfoCards | Should -Not -Match 'color: #666'
+                $htmlWithoutInfoCards | Should -Not -Match 'color: #888'
             }
         }
 
@@ -152,6 +169,21 @@ Describe 'ConvertTo-NinjaOneHtml' -Tag Unit {
             $html | Should -Match 'Access Errors'
             $html | Should -Match 'info-title" style="color: #333;"'
             $html | Should -Match 'info-description" style="color: #666;"'
+        }
+
+        It 'Omits All Results by Size when ShowAllResults is false' {
+            $html = ConvertTo-NinjaOneHtml -ScanResults $mockScanResults -ShowAllResults:$false
+            $html | Should -Not -Match 'All Results by Size'
+        }
+
+        It 'Includes All Results by Size by default' {
+            $html = ConvertTo-NinjaOneHtml -ScanResults $mockScanResults
+            $html | Should -Match 'All Results by Size'
+        }
+
+        It 'Appends FooterSuffix to footer' {
+            $html = ConvertTo-NinjaOneHtml -ScanResults $mockScanResults -FooterSuffix ', Script v1.4.2'
+            $html | Should -Match 'UltraTree v1.0.2, Script v1.4.2'
         }
 
         It 'Accepts pipeline input' {

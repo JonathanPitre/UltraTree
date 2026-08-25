@@ -5,10 +5,19 @@
     .DESCRIPTION
         Transforms the output from Get-FolderSizes into a formatted HTML report
         suitable for display in NinjaOne WYSIWYG custom fields. Includes statistics
-        cards, charts, tables, and cleanup recommendations.
+        cards, ranked Top Files / Top Folders tables, cleanup suggestions, and
+        file type breakdown per drive.
     .PARAMETER ScanResults
         The PSCustomObject output from Get-FolderSizes containing Items, FileTypes,
         CleanupSuggestions, Duplicates, DriveInfo, and statistics.
+    .PARAMETER MaxTopFiles
+        Maximum file rows in per-drive Top Files table. Defaults to Display.MaxTopFiles (50).
+    .PARAMETER MaxTopFolders
+        Maximum folder rows in per-drive Top Folders table. Defaults to Display.MaxTopFolders (25).
+    .PARAMETER ShowAllResults
+        When true, includes the full "All Results by Size" table. Default true for backward compatibility.
+    .PARAMETER FooterSuffix
+        Optional text appended after the UltraTree version in the footer (e.g. integrator script version).
     .OUTPUTS
         String containing HTML markup for the report.
     .EXAMPLE
@@ -17,7 +26,7 @@
         $html | Ninja-Property-Set-Piped treesize
     .EXAMPLE
         $results = Get-FolderSizes -DriveLetter C
-        $html = ConvertTo-NinjaOneHtml -ScanResults $results
+        $html = ConvertTo-NinjaOneHtml -ScanResults $results -ShowAllResults:$false -FooterSuffix ", Script v1.4.2"
         $wrappedHtml = New-HtmlWrapper -Content $html -Title "Disk Report"
         $wrappedHtml | Out-File "report.html"
     .NOTES
@@ -28,12 +37,22 @@
     [OutputType([string])]
     param (
         [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
-        [PSCustomObject]$ScanResults
+        [PSCustomObject]$ScanResults,
+
+        [int]$MaxTopFiles = 0,
+
+        [int]$MaxTopFolders = 0,
+
+        [bool]$ShowAllResults = $true,
+
+        [string]$FooterSuffix = ''
     )
 
     process {
         $html = [System.Text.StringBuilder]::new()
         $cfg = $script:Config
+        $maxFiles = if ($MaxTopFiles -gt 0) { $MaxTopFiles } else { $cfg.Display.MaxTopFiles }
+        $maxFolders = if ($MaxTopFolders -gt 0) { $MaxTopFolders } else { $cfg.Display.MaxTopFolders }
 
         # === TOTAL SUMMARY STAT CARDS ===
         $driveCount = $ScanResults.DriveInfo.Count
@@ -49,6 +68,8 @@
         $searchIcon = Get-ThemeIcon -IconName "Search"
         $copyIcon = Get-ThemeIcon -IconName "Copy"
         $broomIcon = Get-ThemeIcon -IconName "Broom"
+        $fileIcon = Get-ThemeIcon -IconName "File"
+        $folderIcon = Get-ThemeIcon -IconName "Folder"
 
         [void]$html.AppendLine('<div class="row g-3" style="margin-bottom: 16px;">')
         [void]$html.AppendLine('<div class="col-xl-3 col-lg-3 col-md-6 col-sm-6">')
@@ -80,8 +101,18 @@
             $freeColor = Get-ThemeColor -Severity "Free"
 
             $driveCleanup = @($ScanResults.CleanupSuggestions | Where-Object { $_.Drive -eq $drive.Drive })
-            $driveFiles = @($ScanResults.Items | Where-Object { $_.Drive -eq $drive.Drive -and -not $_.IsDirectory } | Select-Object -First $cfg.Display.MaxTopFiles)
-            $driveFolders = @($ScanResults.Items | Where-Object { $_.Drive -eq $drive.Drive -and $_.IsDirectory } | Select-Object -First $cfg.Display.MaxTopFolders)
+            $driveFiles = @(
+                $ScanResults.Items |
+                    Where-Object { $_.Drive -eq $drive.Drive -and -not $_.IsDirectory } |
+                    Sort-Object -Property SizeBytes -Descending |
+                    Select-Object -First $maxFiles
+            )
+            $driveFolders = @(
+                $ScanResults.Items |
+                    Where-Object { $_.Drive -eq $drive.Drive -and $_.IsDirectory } |
+                    Sort-Object -Property SizeBytes -Descending |
+                    Select-Object -First $maxFolders
+            )
             $driveFileTypes = @($ScanResults.FileTypes | Where-Object { $_.Drive -eq $drive.Drive } | Select-Object -First $cfg.Display.MaxFileTypes)
 
             # Row 1: Stat cards
@@ -114,10 +145,22 @@
 
             [void]$html.AppendLine('</div>')
 
-            # Row 3: Three-column layout
+            # Row 3: Top Files + Top Folders ranked tables (full width)
+            $rankedSections = @()
+            if ($driveFiles.Count -gt 0) {
+                $rankedSections += New-HtmlTable -Items $driveFiles -Title "Top Files" -Icon $fileIcon
+            }
+            if ($driveFolders.Count -gt 0) {
+                $rankedSections += New-HtmlTable -Items $driveFolders -Title "Top Folders" -Icon $folderIcon
+            }
+            if ($rankedSections.Count -gt 0) {
+                [void]$html.AppendLine((New-HtmlRankedStack -Sections $rankedSections))
+            }
+
+            # Row 4: Cleanup + File Types (two columns)
             [void]$html.AppendLine('<div class="row g-3" style="margin-bottom: 16px;">')
 
-            [void]$html.AppendLine('<div class="col-xl-4 col-lg-4 col-md-12 d-flex">')
+            [void]$html.AppendLine('<div class="col-xl-6 col-lg-6 col-md-12 d-flex flex-column">')
             if ($driveCleanup.Count -gt 0) {
                 [void]$html.AppendLine((New-HtmlCleanupSuggestions -Suggestions $driveCleanup -Compact))
             }
@@ -127,28 +170,10 @@
             }
             [void]$html.AppendLine('</div>')
 
-            [void]$html.AppendLine('<div class="col-xl-4 col-lg-4 col-md-12 d-flex">')
-            if ($driveFiles.Count -gt 0) {
-                $fileChartItems = $driveFiles | ForEach-Object {
-                    $label = Split-Path $_.Path -Leaf
-                    if ([string]::IsNullOrEmpty($label)) { $label = $_.Path }
-                    @{ Label = $label; Value = $_.SizeBytes }
-                }
-                [void]$html.AppendLine((New-HtmlBarChart -Items $fileChartItems -Title "Top Files" -CardStyle "margin-bottom: 12px;"))
-            }
-            if ($driveFolders.Count -gt 0) {
-                $chartItems = $driveFolders | ForEach-Object {
-                    $label = Split-Path $_.Path -Leaf
-                    if ([string]::IsNullOrEmpty($label)) { $label = $_.Path }
-                    @{ Label = $label; Value = $_.SizeBytes }
-                }
-                [void]$html.AppendLine((New-HtmlBarChart -Items $chartItems -Title "Top Folders"))
-            }
-            [void]$html.AppendLine('</div>')
-
-            [void]$html.AppendLine('<div class="col-xl-4 col-lg-4 col-md-12 d-flex">')
+            [void]$html.AppendLine('<div class="col-xl-6 col-lg-6 col-md-12 d-flex flex-column">')
             if ($driveFileTypes.Count -gt 0) {
-                [void]$html.AppendLine((New-HtmlFileTypeTable -FileTypes $driveFileTypes))
+                $fileTypesHtml = (New-HtmlFileTypeTable -FileTypes $driveFileTypes) -replace '<div class="card flex-grow-1" style="margin-bottom: 16px;">', '<div class="card flex-grow-1">'
+                [void]$html.AppendLine($fileTypesHtml)
             }
             [void]$html.AppendLine('</div>')
 
@@ -161,13 +186,19 @@
         }
 
         # === FULL RESULTS TABLE ===
-        $listIcon = Get-ThemeIcon -IconName "List"
-        [void]$html.AppendLine((New-HtmlTable -Items $ScanResults.Items -Title "All Results by Size" -Icon $listIcon))
+        if ($ShowAllResults) {
+            $listIcon = Get-ThemeIcon -IconName "List"
+            [void]$html.AppendLine((New-HtmlTable -Items $ScanResults.Items -Title "All Results by Size" -Icon $listIcon))
+        }
 
         # === FOOTER ===
         $scanTime = Get-Date -Format "yyyy-MM-dd HH:mm"
-        $mutedColor = Get-ThemeColor -Severity "Muted"
-        [void]$html.AppendLine("<p style=`"font-size: 0.7em; color: $mutedColor; text-align: right; margin-top: 16px;`">TreeSize v$($cfg.Version) | Scanned: $scanTime</p>")
+        $footerText = "UltraTree v$($cfg.Version)"
+        if ($FooterSuffix) {
+            $footerText += $FooterSuffix
+        }
+        $footerText += " | Scanned: $scanTime"
+        [void]$html.AppendLine("<p class=`"stat-desc`" style=`"font-size: 0.7em; text-align: left; margin-top: 16px;`">$footerText</p>")
 
         return $html.ToString()
     }
