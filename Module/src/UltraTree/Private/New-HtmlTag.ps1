@@ -10,14 +10,12 @@
     .PARAMETER Type
         Optional type: empty string (default), "disabled", or "expired".
     #>
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'None')]
+    [CmdletBinding()]
     param (
         [string]$Text,
         [ValidateSet("", "disabled", "expired")]
         [string]$Type = ""
     )
-
-    if (-not $PSCmdlet.ShouldProcess($Text, 'Generate HTML tag')) { return '' }
 
     $classExtra = if ($Type) { " $Type" } else { "" }
     $baseStyle = 'display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;'
@@ -25,15 +23,18 @@
     switch ($Type) {
         'expired' {
             $bgColor = Get-ThemeColor -Severity 'Danger'
+            $fgColor = '#fff'
         }
         'disabled' {
             $bgColor = Get-ThemeColor -Severity 'Warning'
+            $fgColor = '#333'
         }
         default {
             $bgColor = Get-ThemeColor -Severity 'Success'
+            $fgColor = '#333'
         }
     }
 
-    $style = "$baseStyle background-color: $bgColor; color: #fff;"
+    $style = "$baseStyle background-color: $bgColor; color: $fgColor;"
     "<div class=`"tag$classExtra`" style=`"$style`">$Text</div>"
 }

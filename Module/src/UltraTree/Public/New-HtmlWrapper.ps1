@@ -15,7 +15,7 @@
     .EXAMPLE
         Get-FolderSizes -AllDrives | ConvertTo-NinjaOneHtml | New-HtmlWrapper | Out-File "report.html"
     #>
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'None')]
+    [CmdletBinding()]
     [OutputType([string])]
     param (
         [Parameter(ValueFromPipeline)]
@@ -24,7 +24,6 @@
     )
 
     process {
-        if (-not $PSCmdlet.ShouldProcess($Title, 'Wrap HTML content')) { return }
         @"
 <!DOCTYPE html>
 <html lang="en">
@@ -124,7 +123,7 @@
         }
         .tag.disabled, .tag.warning {
             background-color: #f0ad4e;
-            color: white;
+            color: #333;
         }
         table {
             width: 100%;

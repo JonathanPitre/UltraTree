@@ -11,7 +11,11 @@ function Get-FolderSizes {
     .PARAMETER MaxDepth
         Maximum folder depth to include in results (default: 5, range: 1-20).
     .PARAMETER Top
-        Maximum number of results to return (default: 40, range: 1-1000).
+        Maximum number of items returned in ScanResults.Items (default: 40, range: 1-1000).
+        Items is a single list of files and folders mixed together, sorted by size globally
+        (across all drives when using -AllDrives). Folders usually dominate this list.
+        For ranked Top Files tables in ConvertTo-NinjaOneHtml, use a larger -Top value
+        (for example -Top 200) so enough file rows remain after truncation.
     .PARAMETER FolderSize
         Show only folders in results (excludes individual files).
     .PARAMETER FileSize

@@ -23,11 +23,16 @@ Control how much data appears in HTML reports:
 |---------|---------|-------------|
 | `MaxDuplicateGroups` | 20 | Maximum duplicate groups shown in report |
 | `MaxPathsPerGroup` | 5 | Maximum file paths shown per duplicate group |
-| `MaxTopFolders` | 8 | Number of folders in the bar chart |
+| `MaxTopFolders` | 25 | Top folders in ranked table per drive |
+| `MaxTopFiles` | 50 | Top files in ranked table per drive |
 | `MaxFileTypes` | 10 | Number of file types in the table |
 | `MaxResults` | 40 | Maximum items in the full results table |
 | `MaxPathLength` | 50 | Truncate paths longer than this in display |
 | `MaxLabelLength` | 12 | Truncate chart labels longer than this |
+
+### Top Files / Top Folders and `-Top`
+
+`ConvertTo-NinjaOneHtml` builds per-drive Top Files and Top Folders tables from `Get-FolderSizes` output. `Items` is a **single mixed list** of files and folders, sorted by size and truncated by `-Top` (default 40) across all drives. Folders usually fill most of that list, so raise `-Top` when you need more file rows (for example `-Top 200`).
 
 ## Disk Health Thresholds
 

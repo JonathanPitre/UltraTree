@@ -2,6 +2,7 @@
     Set-Location -Path $PSScriptRoot
     $ModuleName = 'UltraTree'
     $PathToManifest = [System.IO.Path]::Combine('..', '..', '..', $ModuleName, "$ModuleName.psd1")
+    $script:ModuleVersion = (Import-PowerShellDataFile $PathToManifest).ModuleVersion
     Get-Module $ModuleName -ErrorAction SilentlyContinue | Remove-Module -Force
     Import-Module $PathToManifest -Force
 }
@@ -121,7 +122,7 @@ Describe 'ConvertTo-NinjaOneHtml' -Tag Unit {
 
         It 'Contains UltraTree version footer' {
             $html = ConvertTo-NinjaOneHtml -ScanResults $mockScanResults
-            $html | Should -Match 'UltraTree v1.0.2'
+            $html | Should -Match "UltraTree v$([regex]::Escape($script:ModuleVersion))"
             $html | Should -Not -Match 'TreeSize v'
         }
 
@@ -183,7 +184,7 @@ Describe 'ConvertTo-NinjaOneHtml' -Tag Unit {
 
         It 'Appends FooterSuffix to footer' {
             $html = ConvertTo-NinjaOneHtml -ScanResults $mockScanResults -FooterSuffix ', Script v1.4.2'
-            $html | Should -Match 'UltraTree v1.0.2, Script v1.4.2'
+            $html | Should -Match "UltraTree v$([regex]::Escape($script:ModuleVersion)), Script v1.4.2"
         }
 
         It 'Accepts pipeline input' {

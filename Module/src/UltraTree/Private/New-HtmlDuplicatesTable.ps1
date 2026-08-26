@@ -9,14 +9,13 @@
     .PARAMETER TotalWasted
         Total wasted space across all duplicate groups.
     #>
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'None')]
+    [CmdletBinding()]
     param (
         [array]$DuplicateGroups,
         [long]$TotalWasted
     )
 
     if ($null -eq $DuplicateGroups -or $DuplicateGroups.Count -eq 0) { return "" }
-    if (-not $PSCmdlet.ShouldProcess('duplicate files', 'Generate HTML duplicates table')) { return '' }
 
     $totalWastedText = Format-ByteSize -Bytes $TotalWasted
     $cfg = $script:Config.Display

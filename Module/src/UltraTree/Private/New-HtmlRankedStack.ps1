@@ -8,7 +8,7 @@
     .PARAMETER Sections
         HTML card fragments (e.g. from New-HtmlTable).
     #>
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'None')]
+    [CmdletBinding()]
     [OutputType([string])]
     param (
         [string[]]$Sections
@@ -16,7 +16,6 @@
 
     $parts = @($Sections | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
     if ($parts.Count -eq 0) { return '' }
-    if (-not $PSCmdlet.ShouldProcess('ranked tables', 'Generate HTML ranked stack')) { return '' }
 
     $cards = for ($i = 0; $i -lt $parts.Count; $i++) {
         $card = $parts[$i] -replace '<div class="card flex-grow-1"', '<div class="card"'

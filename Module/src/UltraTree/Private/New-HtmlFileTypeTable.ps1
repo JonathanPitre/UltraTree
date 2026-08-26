@@ -7,10 +7,8 @@
     .PARAMETER FileTypes
         Array of file type objects with Extension, FileCount, and TotalSize properties.
     #>
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'None')]
+    [CmdletBinding()]
     param ([array]$FileTypes)
-
-    if (-not $PSCmdlet.ShouldProcess('file types', 'Generate HTML file type table')) { return '' }
 
     $colors = @("#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E9", "#F8B500", "#00CED1", "#FF7F50", "#9370DB", "#20B2AA")
 

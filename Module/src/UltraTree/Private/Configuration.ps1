@@ -2,8 +2,6 @@
 # Centralized configuration with nested theme/thresholds
 
 $script:Config = @{
-    Version        = "1.0.2"
-
     # Size thresholds
     Thresholds     = @{
         CleanupMin    = 100MB     # Minimum size for cleanup suggestions

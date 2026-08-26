@@ -69,6 +69,7 @@ Describe 'HTML Generation Functions' -Tag Unit {
                 $html = New-HtmlTag -Text 'Healthy'
                 $html | Should -Match 'class="tag"'
                 $html | Should -Match 'Healthy'
+                $html | Should -Match 'color: #333'
             }
         }
 
@@ -86,7 +87,7 @@ Describe 'HTML Generation Functions' -Tag Unit {
                 $html = New-HtmlTag -Text 'Warning' -Type 'disabled'
                 $html | Should -Match 'class="tag disabled"'
                 $html | Should -Match 'background-color: #f0ad4e'
-                $html | Should -Match 'color: #fff'
+                $html | Should -Match 'color: #333'
             }
         }
     }

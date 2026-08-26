@@ -8,18 +8,14 @@
         Array of objects with Label and Value properties.
     .PARAMETER Title
         The chart title.
-    .PARAMETER CardStyle
-        Optional inline CSS for the card element.
     #>
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'None')]
+    [CmdletBinding()]
     param (
         [array]$Items,
-        [string]$Title = "Top Items",
-        [string]$CardStyle = ""
+        [string]$Title = "Top Items"
     )
 
     if ($null -eq $Items -or $Items.Count -eq 0) { return "" }
-    if (-not $PSCmdlet.ShouldProcess($Title, 'Generate HTML bar chart')) { return '' }
 
     # Find max value (can't use Measure-Object with hashtables)
     $maxValue = 0
@@ -52,5 +48,5 @@ $($rows -join "`n")
     </table>
 "@
 
-    New-HtmlCard -Title $Title -Icon $icon -Body $body -BodyStyle "padding: 8px;" -CardStyle $CardStyle
+    New-HtmlCard -Title $Title -Icon $icon -Body $body -BodyStyle "padding: 8px;"
 }

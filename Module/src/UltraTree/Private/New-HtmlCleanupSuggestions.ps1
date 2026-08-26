@@ -9,14 +9,13 @@
     .PARAMETER Compact
         Switch to use compact list format instead of full cards.
     #>
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'None')]
+    [CmdletBinding()]
     param (
         [array]$Suggestions,
         [switch]$Compact
     )
 
     if ($null -eq $Suggestions -or $Suggestions.Count -eq 0) { return '' }
-    if (-not $PSCmdlet.ShouldProcess('cleanup suggestions', 'Generate HTML cleanup suggestions')) { return '' }
 
     $broomIcon = Get-ThemeIcon -IconName 'Broom'
 
@@ -36,7 +35,8 @@
     </ul>
 "@
         New-HtmlCard -Title 'Cleanup' -Icon $broomIcon -Body $body -BodyStyle 'padding: 12px;'
-    } else {
+    }
+    else {
         $cards = foreach ($sug in $Suggestions) {
             $sizeText = Format-ByteSize -Bytes $sug.Size
             $category = $script:CleanupCategories | Where-Object { $_.Name -eq $sug.Category }

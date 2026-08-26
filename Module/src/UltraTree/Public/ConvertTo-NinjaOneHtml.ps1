@@ -12,12 +12,15 @@
         CleanupSuggestions, Duplicates, DriveInfo, and statistics.
     .PARAMETER MaxTopFiles
         Maximum file rows in per-drive Top Files table. Defaults to Display.MaxTopFiles (50).
+        Get-FolderSizes returns Items as one mixed file/folder list truncated by -Top (default 40).
+        Raise -Top on Get-FolderSizes when you need more file rows (for example -Top 200).
     .PARAMETER MaxTopFolders
         Maximum folder rows in per-drive Top Folders table. Defaults to Display.MaxTopFolders (25).
+        Subject to the same Get-FolderSizes -Top limit as MaxTopFiles.
     .PARAMETER ShowAllResults
         When true, includes the full "All Results by Size" table. Default true for backward compatibility.
     .PARAMETER FooterSuffix
-        Optional text appended after the UltraTree version in the footer (e.g. integrator script version).
+        Optional text appended after the UltraTree version in the footer (e.g. caller script version).
     .OUTPUTS
         String containing HTML markup for the report.
     .EXAMPLE
@@ -32,6 +35,10 @@
     .NOTES
         The output HTML assumes Bootstrap 5, Font Awesome 6, and Charts.css are
         available. For standalone viewing, wrap with New-HtmlWrapper.
+
+        Top Files and Top Folders tables read from Get-FolderSizes Items, which is one
+        mixed list capped by -Top. Use a larger -Top when generating reports that need
+        many file rows (MaxTopFiles defaults to 50).
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -163,7 +170,8 @@
             [void]$html.AppendLine('<div class="col-xl-6 col-lg-6 col-md-12 d-flex flex-column">')
             if ($driveCleanup.Count -gt 0) {
                 [void]$html.AppendLine((New-HtmlCleanupSuggestions -Suggestions $driveCleanup -Compact))
-            } else {
+            }
+            else {
                 $checkIcon = Get-ThemeIcon -IconName "CheckCircle"
                 [void]$html.AppendLine("<div class=`"card flex-grow-1`"><div class=`"card-title-box`"><div class=`"card-title`"><i class=`"$checkIcon`" style=`"color: $successColor;`"></i>&nbsp;&nbsp;No Cleanup Needed</div></div><div class=`"card-body`"><p class=`"stat-desc`">No significant cleanup opportunities found.</p></div></div>")
             }
@@ -192,7 +200,8 @@
 
         # === FOOTER ===
         $scanTime = Get-Date -Format "yyyy-MM-dd HH:mm"
-        $footerText = "UltraTree v$($cfg.Version)"
+        $moduleVersion = $MyInvocation.MyCommand.Module.Version
+        $footerText = "UltraTree v$moduleVersion"
         if ($FooterSuffix) {
             $footerText += $FooterSuffix
         }

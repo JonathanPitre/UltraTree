@@ -9,13 +9,11 @@
     .PARAMETER Total
         The total value for calculating percentages.
     #>
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'None')]
+    [CmdletBinding()]
     param (
         [array]$Segments,
         [long]$Total
     )
-
-    if (-not $PSCmdlet.ShouldProcess('disk usage chart', 'Generate HTML line chart')) { return '' }
 
     if ($Total -eq 0) { $Total = 1 }
 

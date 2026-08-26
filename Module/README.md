@@ -520,10 +520,13 @@ UltraTree uses internal configuration that can be customized by modifying `Priva
 |---------|---------|-------------|
 | `MaxDuplicateGroups` | 20 | Max duplicate groups in HTML report |
 | `MaxPathsPerGroup` | 5 | Max file paths shown per duplicate group |
-| `MaxTopFolders` | 8 | Top folders displayed in bar chart |
+| `MaxTopFolders` | 25 | Top folders in ranked table per drive |
+| `MaxTopFiles` | 50 | Top files in ranked table per drive |
 | `MaxFileTypes` | 10 | Top file types to display |
 | `MaxResults` | 40 | Max items in results table |
 | `MaxPathLength` | 50 | Truncate paths longer than this |
+
+`Get-FolderSizes` returns `Items` as one mixed file/folder list capped by `-Top` (default 40). For HTML reports that need many Top Files rows, pass a larger `-Top` (for example `-Top 200`) to `Get-FolderSizes` before `ConvertTo-NinjaOneHtml`.
 
 ### Disk Health Thresholds
 

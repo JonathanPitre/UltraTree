@@ -15,7 +15,7 @@
     .PARAMETER CardStyle
         Optional inline CSS for the card element.
     #>
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'None')]
+    [CmdletBinding()]
     param (
         [string]$Title,
         [string]$Icon = "",
@@ -23,8 +23,6 @@
         [string]$BodyStyle = "",
         [string]$CardStyle = ""
     )
-
-    if (-not $PSCmdlet.ShouldProcess($Title, 'Generate HTML card')) { return '' }
 
     $iconHtml = if ($Icon) { "<i class=`"$Icon`"></i>&nbsp;&nbsp;" } else { "" }
     $bodyStyleAttr = if ($BodyStyle) { " style=`"$BodyStyle`"" } else { "" }
